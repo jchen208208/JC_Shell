@@ -8,7 +8,8 @@
 static bool is_builtin(const char *command) {
     return strcmp(command, "echo") == 0 ||
            strcmp(command, "exit") == 0 ||
-           strcmp(command, "type") == 0;
+           strcmp(command, "type") == 0 ||
+           strcmp(command, "pwd") == 0;
 }
 
 static char *find_in_path(const char *command) {
@@ -57,6 +58,13 @@ int main(int argc, char *argv[]) {
         
         else if (strncmp(input, "echo ", 5) == 0) {
             printf("%s\n", input + 5);
+        }
+
+        else if (strcmp(input, "pwd") == 0) {
+            char cwd[1024];
+            if (getcwd(cwd, sizeof(cwd)) != NULL) {
+                printf("%s\n", cwd);
+            }
         }
         
         else if (strncmp(input, "type ", 5) == 0) {

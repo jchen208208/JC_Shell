@@ -97,15 +97,15 @@ int main(int argc, char *argv[]) {
                 pid_t pid = fork();
 
                 if (pid == 0) {
-                    // I am the child — become the program
+                    // child, becomes the program
                     execv(full_path, args);
 
-                    // Only runs if execv failed
+                    // only runs if execv failed
                     perror("execv");
                     exit(1);
                 }
                 else if (pid > 0) {
-                    // I am the parent — wait for the child to finish
+                    // paremt waits for the child to finish
                     int status;
                     waitpid(pid, &status, 0);
                 }

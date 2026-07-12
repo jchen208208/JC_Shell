@@ -3,12 +3,40 @@
 #include <string.h>
 #include <stdbool.h>
 #include <unistd.h>
+#include <sys/wait.h>
 
 static bool is_builtin(const char *command) {
     return strcmp(command, "echo") == 0 ||
            strcmp(command, "exit") == 0 ||
            strcmp(command, "type") == 0;
 }
+
+static char *find_in_path(const char *command) {
+    char *path_env = getenv("PATH");
+
+        if (path_env != NULL) {
+            // Duplicate path_env because strtok modifies the string
+            char *path_copy = strdup(path_env);
+            char *dir = strtok(path_copy, ":");
+
+            while (dir != NULL) {
+                char full_path[1024];
+                snprintf(full_path, sizeof(full_path), "%s/%s", dir, command);
+
+                // Check if file exists and is executable
+                if (access(full_path, X_OK) == 0) {
+                    char *result = strdup(full_path);
+                    free(path_copy);
+                    return result;
+                }
+                dir = strtok(NULL, ":");
+            }
+            free(path_copy);
+        }
+
+        return NULL;
+    
+    }
 
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
@@ -37,37 +65,57 @@ int main(int argc, char *argv[]) {
                 printf("%s is a shell builtin\n", command);
             }
             else {
-                char *path_env = getenv("PATH");
-                int found = 0;
-
-                if (path_env != NULL) {
-                    // Duplicate path_env because strtok modifies the string
-                    char *path_copy = strdup(path_env);
-                    char *dir = strtok(path_copy, ":");
-
-                    while (dir != NULL) {
-                        char full_path[1024];
-                        snprintf(full_path, sizeof(full_path), "%s/%s", dir, command);
-
-                        // Check if file exists and is executable
-                        if (access(full_path, X_OK) == 0) {
-                            printf("%s is %s\n", command, full_path);
-                            found = 1;
-                            break;
-                        }
-                        dir = strtok(NULL, ":");
-                    }
-                    free(path_copy);
+                char *full_path = find_in_path(command);
+                if (full_path != NULL) {
+                    printf("%s is %s\n", command, full_path);
+                    free(full_path);
                 }
-
-                if (!found) {
+                else {
                     printf("%s: not found\n", command);
-                    }
                 }
             }
+        }
         
         else {
-            printf("%s: command not found\n", input);
+            char *args[64];
+            int i = 0;
+            args[0] = strtok(input, " ");
+
+            if (args[0] == NULL) continue;
+            
+            while (args[i] != NULL) {
+                i++;
+                args[i] = strtok(NULL, " ");
+            }
+
+            char *full_path = find_in_path(args[0]);
+            if (full_path == NULL) {
+                printf("%s: command not found\n", args[0]);
+            }
+            else {
+                
+                pid_t pid = fork();
+
+                if (pid == 0) {
+                    // I am the child — become the program
+                    execv(full_path, args);
+
+                    // Only runs if execv failed
+                    perror("execv");
+                    exit(1);
+                }
+                else if (pid > 0) {
+                    // I am the parent — wait for the child to finish
+                    int status;
+                    waitpid(pid, &status, 0);
+                }
+                else {
+                    perror("fork");
+                }
+
+                free(full_path);
+            }
+ 
         }
     }
 

@@ -9,7 +9,8 @@ static bool is_builtin(const char *command) {
     return strcmp(command, "echo") == 0 ||
            strcmp(command, "exit") == 0 ||
            strcmp(command, "type") == 0 ||
-           strcmp(command, "pwd") == 0;
+           strcmp(command, "pwd") == 0 ||
+           strcmp(command, "cd") == 0;
 }
 
 static char *find_in_path(const char *command) {
@@ -64,6 +65,13 @@ int main(int argc, char *argv[]) {
             char cwd[1024];
             if (getcwd(cwd, sizeof(cwd)) != NULL) {
                 printf("%s\n", cwd);
+            }
+        }
+
+        else if (strncmp(input, "cd ", 3) == 0) {
+            const char* absolute_path = input + 3;
+            if (chdir(absolute_path) != 0) {
+                printf("cd: %s: No such file or directory\n", absolute_path);
             }
         }
         

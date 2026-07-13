@@ -69,9 +69,12 @@ int main(int argc, char *argv[]) {
         }
 
         else if (strncmp(input, "cd ", 3) == 0) {
-            const char* absolute_path = input + 3;
-            if (chdir(absolute_path) != 0) {
-                printf("cd: %s: No such file or directory\n", absolute_path);
+            const char* path = input + 3;
+            if (strcmp(path, "~") == 0) {
+                path = getenv("HOME");
+            }
+            if (chdir(path) != 0) {
+                printf("cd: %s: No such file or directory\n", path);
             }
         }
         

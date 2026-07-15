@@ -53,23 +53,77 @@ int main(int argc, char *argv[]) {
 
         input[strcspn(input, "\n")] = '\0';
 
-        if (strcmp(input, "exit") == 0) {
+        char *args[64];
+        int nargs = 0;
+        char token[1024];
+        int len = 0;
+        bool in_token = false;
+        bool in_squote = false;
+
+        for (int i = 0; input[i] != '\0'; i++) {
+            char c = input[i];
+            if (in_squote) {
+                if (c == '\'') {
+                    in_squote = false;
+                }
+                else {
+                    token[len++] = c;
+                }
+            }
+            else {
+                if (c == '\'') {
+                    in_squote = true;
+                    in_token = true;
+                }
+                else if (c == ' ' || c == '\t') {
+                    if (in_token) {
+                        token[len] = '\0';
+                        args[nargs++] = strdup(token);
+                        len = 0;
+                        in_token = false;
+                    }
+                    else {
+                        continue;
+                    }
+                }
+                else {
+                    token[len++] = c;
+                }
+            }
+        }
+
+        if (in_token) {
+            token[len] = '\0';
+            args[nargs++] = strdup(token);
+        }
+
+        args[nargs] = NULL;
+        if (args[0] == NULL) continue;
+
+
+        if (strcmp(args[0], "exit") == 0) {
             break;
         }
         
-        else if (strncmp(input, "echo ", 5) == 0) {
-            printf("%s\n", input + 5);
+        else if (strcmp(args[0], "echo") == 0) {
+            for (int i = 1; i < nargs; i++) {
+                printf("%s", args[i]);
+                if (i < nargs - 1) {
+                    printf(" ");   // space between, not after the last
+                }
+            }
+            printf("\n");
         }
 
-        else if (strcmp(input, "pwd") == 0) {
+        else if (strcmp(args[0], "pwd") == 0) {
             char cwd[1024];
             if (getcwd(cwd, sizeof(cwd)) != NULL) {
                 printf("%s\n", cwd);
             }
         }
 
-        else if (strncmp(input, "cd ", 3) == 0) {
-            const char* path = input + 3;
+        else if (strcmp(args[0], "cd") == 0) {
+            const char *path = args[1];
             if (strcmp(path, "~") == 0) {
                 path = getenv("HOME");
             }
@@ -78,8 +132,8 @@ int main(int argc, char *argv[]) {
             }
         }
         
-        else if (strncmp(input, "type ", 5) == 0) {
-            const char *command = input + 5;
+        else if (strcmp(args[0], "type") == 0) {
+            const char *command = args[1];
             if (is_builtin(command)) {
                 printf("%s is a shell builtin\n", command);
             }
@@ -96,17 +150,6 @@ int main(int argc, char *argv[]) {
         }
         
         else {
-            char *args[64];
-            int i = 0;
-            args[0] = strtok(input, " ");
-
-            if (args[0] == NULL) continue;
-            
-            while (args[i] != NULL) {
-                i++;
-                args[i] = strtok(NULL, " ");
-            }
-
             char *full_path = find_in_path(args[0]);
             if (full_path == NULL) {
                 printf("%s: command not found\n", args[0]);

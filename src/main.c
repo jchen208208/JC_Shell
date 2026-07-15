@@ -46,6 +46,7 @@ int main(int argc, char *argv[]) {
     while (true) {
         printf("$ ");
 
+        // take cli input
         char input[100];
         if (!fgets(input, sizeof(input), stdin)) {
             break;
@@ -53,16 +54,26 @@ int main(int argc, char *argv[]) {
 
         input[strcspn(input, "\n")] = '\0';
 
+        // tokenization step
         char *args[64];
         int nargs = 0;
         char token[1024];
         int len = 0;
         bool in_token = false;
         bool in_squote = false;
+        bool in_dquote = false;
 
         for (int i = 0; input[i] != '\0'; i++) {
             char c = input[i];
-            if (in_squote) {
+            if (in_dquote) {
+                if (c == '\"') {
+                    in_dquote = false;
+                }
+                else {
+                    token[len++] = c;
+                }
+            }
+            else if (in_squote) {
                 if (c == '\'') {
                     in_squote = false;
                 }

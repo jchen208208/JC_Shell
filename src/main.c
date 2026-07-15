@@ -86,6 +86,10 @@ int main(int argc, char *argv[]) {
                     in_squote = true;
                     in_token = true;
                 }
+                else if (c == '\"') {
+                    in_dquote = true;
+                    in_token = true;
+                }
                 else if (c == ' ' || c == '\t') {
                     if (in_token) {
                         token[len] = '\0';
@@ -112,21 +116,23 @@ int main(int argc, char *argv[]) {
         args[nargs] = NULL;
         if (args[0] == NULL) continue;
 
-
+        // exits the loop
         if (strcmp(args[0], "exit") == 0) {
             break;
         }
         
+        // restates everything after "echo"
         else if (strcmp(args[0], "echo") == 0) {
             for (int i = 1; i < nargs; i++) {
                 printf("%s", args[i]);
                 if (i < nargs - 1) {
-                    printf(" ");   // space between, not after the last
+                    printf(" ");   // space between args, not after the last
                 }
             }
             printf("\n");
         }
 
+        // returns current working directory
         else if (strcmp(args[0], "pwd") == 0) {
             char cwd[1024];
             if (getcwd(cwd, sizeof(cwd)) != NULL) {
@@ -134,6 +140,7 @@ int main(int argc, char *argv[]) {
             }
         }
 
+        // change directory to input path
         else if (strcmp(args[0], "cd") == 0) {
             const char *path = args[1];
             if (strcmp(path, "~") == 0) {
@@ -144,6 +151,7 @@ int main(int argc, char *argv[]) {
             }
         }
         
+        // determines the type of the input (builtin, an executable file, or invalid)
         else if (strcmp(args[0], "type") == 0) {
             const char *command = args[1];
             if (is_builtin(command)) {
@@ -161,6 +169,7 @@ int main(int argc, char *argv[]) {
             }
         }
         
+        // if the first argument of input is an executable file, run that process using a child process and taking in the rest of the arguments as the child process's arguments
         else {
             char *full_path = find_in_path(args[0]);
             if (full_path == NULL) {

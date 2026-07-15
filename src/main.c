@@ -88,6 +88,7 @@ int main(int argc, char *argv[]) {
                 }
                 else {
                     token[len++] = c;
+                    in_token = true;
                 }
             }
         }

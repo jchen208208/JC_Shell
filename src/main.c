@@ -69,6 +69,13 @@ int main(int argc, char *argv[]) {
                 if (c == '\"') {
                     in_dquote = false;
                 }
+                else if (c == '\\') {
+                    if (input[i + 1] != '\0') {
+                        token[len++] = input[i + 1];
+                        in_token = true;
+                        i++;
+                    }
+                }
                 else {
                     token[len++] = c;
                 }

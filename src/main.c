@@ -54,7 +54,7 @@ int main(int argc, char *argv[]) {
 
         input[strcspn(input, "\n")] = '\0';
 
-        // tokenization step
+        // tokenization step (breaking input into arguments array)
         char *args[64];
         int nargs = 0;
         char token[1024];
@@ -82,7 +82,14 @@ int main(int argc, char *argv[]) {
                 }
             }
             else {
-                if (c == '\'') {
+                if (c == '\\') {
+                    if (input[i + 1] != '\0') {
+                        token[len++] = input[i + 1];
+                        in_token = true;
+                        i++;
+                    }
+                }
+                else if (c == '\'') {
                     in_squote = true;
                     in_token = true;
                 }

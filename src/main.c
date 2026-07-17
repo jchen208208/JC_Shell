@@ -131,31 +131,55 @@ int main(int argc, char *argv[]) {
         args[nargs] = NULL;
         if (args[0] == NULL) continue;
 
-        // checks for standard output redirection
-        char *filename = NULL;
+        // checks for standard output and standard error redirections
+        char *out_filename = NULL;
+        char *err_filename = NULL;
 
         for (int i = 0; i < nargs; i++) {
             if ((strcmp(args[i], ">") == 0) || (strcmp(args[i], "1>") == 0)) {
-                filename = args[i + 1];
+                out_filename = args[i + 1];
                 args[i] = NULL;
-                nargs = i;
-                break;
+                if (i < nargs) {
+                    nargs = i;
+                }
+            }
+            else if ((strcmp(args[i], "2>") == 0)) {
+                err_filename = args[i + 1];
+                args[i] = NULL;
+                if (i < nargs) {
+                    nargs = i;
+                }
             }
         }
 
-        // redirects stdout to the file for builtins, saving the terminal fd to restore after
+        // redirect stdout to the file for builtins, saving the terminal fd to restore after
         int saved_stdout = -1;
+        int saved_stderr = -1;
 
-        if (filename != NULL && is_builtin(args[0])) {
-            int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (out_filename != NULL && is_builtin(args[0])) {
+            int fd = open(out_filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
             if (fd < 0) {
-                perror(filename);
+                perror(out_filename);
                 continue;
             }
 
             saved_stdout = dup(1);
             dup2(fd, 1);
+            close(fd);
+        }
+
+        // redirect stderr for builtins
+        if (err_filename != NULL && is_builtin(args[0])) {
+            int fd = open(err_filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+            if (fd < 0) {
+                perror(err_filename);
+                continue;
+            }
+
+            saved_stderr = dup(2);
+            dup2(fd, 2);
             close(fd);
         }
 
@@ -225,18 +249,30 @@ int main(int argc, char *argv[]) {
                 if (pid == 0) {
                     // child, becomes the program
 
-                    if (filename != NULL) {
-                        int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                    if (out_filename != NULL) {
+                        int fd = open(out_filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
 
                         if (fd < 0) {
-                            perror(filename);
+                            perror(out_filename);
                             exit(1);
                         }
 
                         dup2(fd, 1);
 
                         close(fd);
+                    }
 
+                    if (err_filename != NULL) {
+                        int fd = open(err_filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+                        if (fd < 0) {
+                            perror(err_filename);
+                            exit(2);
+                        }
+
+                        dup2(fd, 2);
+
+                        close(fd);
                     }
 
                     execv(full_path, args);
@@ -264,6 +300,11 @@ int main(int argc, char *argv[]) {
         if (saved_stdout != -1) {
             dup2(saved_stdout, 1);
             close(saved_stdout);
+        }
+
+        if (saved_stderr != -1) {
+            dup2(saved_stderr, 2);
+            close(saved_stderr);
         }
     }
 

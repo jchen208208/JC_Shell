@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <fcntl.h>
 
 static bool is_builtin(const char *command) {
     return strcmp(command, "echo") == 0 ||
@@ -130,6 +131,34 @@ int main(int argc, char *argv[]) {
         args[nargs] = NULL;
         if (args[0] == NULL) continue;
 
+        // checks for standard output redirection
+        char *filename = NULL;
+
+        for (int i = 0; i < nargs; i++) {
+            if ((strcmp(args[i], ">") == 0) || (strcmp(args[i], "1>") == 0)) {
+                filename = args[i + 1];
+                args[i] = NULL;
+                nargs = i;
+                break;
+            }
+        }
+
+        // redirects stdout to the file for builtins, saving the terminal fd to restore after
+        int saved_stdout = -1;
+
+        if (filename != NULL && is_builtin(args[0])) {
+            int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+            if (fd < 0) {
+                perror(filename);
+                continue;
+            }
+
+            saved_stdout = dup(1);
+            dup2(fd, 1);
+            close(fd);
+        }
+
         // exits the loop
         if (strcmp(args[0], "exit") == 0) {
             break;
@@ -195,12 +224,28 @@ int main(int argc, char *argv[]) {
 
                 if (pid == 0) {
                     // child, becomes the program
+
+                    if (filename != NULL) {
+                        int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+
+                        if (fd < 0) {
+                            perror(filename);
+                            exit(1);
+                        }
+
+                        dup2(fd, 1);
+
+                        close(fd);
+
+                    }
+
                     execv(full_path, args);
 
                     // only runs if execv failed
                     perror("execv");
                     exit(1);
                 }
+
                 else if (pid > 0) {
                     // paremt waits for the child to finish
                     int status;
@@ -212,7 +257,13 @@ int main(int argc, char *argv[]) {
 
                 free(full_path);
             }
- 
+
+        }
+
+        // restores stdout to the terminal after a builtin redirect
+        if (saved_stdout != -1) {
+            dup2(saved_stdout, 1);
+            close(saved_stdout);
         }
     }
 

@@ -135,6 +135,7 @@ int main(int argc, char *argv[]) {
         char *out_filename = NULL;
         bool out_append = false;
         char *err_filename = NULL;
+        bool err_append = false;
 
         int args_end = nargs;
 
@@ -158,6 +159,15 @@ int main(int argc, char *argv[]) {
             else if ((strcmp(args[i], ">>") == 0) || (strcmp(args[i], "1>>") == 0)) {
                 out_filename = args[i + 1];
                 out_append = true;
+                if (i < nargs) {
+                    nargs = i;
+                }
+                args[i] = NULL;
+            }
+
+             else if (strcmp(args[i], "2>>") == 0) {
+                err_filename = args[i + 1];
+                err_append = true;
                 if (i < nargs) {
                     nargs = i;
                 }

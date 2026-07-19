@@ -172,7 +172,7 @@ int main(int argc, char *argv[]) {
         int saved_stderr = -1;
 
         if (out_filename != NULL && is_builtin(args[0])) {
-            int fd = open(out_filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            int fd = open(out_filename, O_WRONLY | O_CREAT | (out_append ? O_APPEND : O_TRUNC), 0644);
 
             if (fd < 0) {
                 perror(out_filename);
@@ -186,7 +186,7 @@ int main(int argc, char *argv[]) {
 
         // redirect stderr for builtins
         if (err_filename != NULL && is_builtin(args[0])) {
-            int fd = open(err_filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+            int fd = open(err_filename, O_WRONLY | O_CREAT | (out_append ? O_APPEND : O_TRUNC), 0644);
 
             if (fd < 0) {
                 perror(err_filename);

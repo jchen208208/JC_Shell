@@ -133,24 +133,39 @@ int main(int argc, char *argv[]) {
 
         // checks for standard output and standard error redirections
         char *out_filename = NULL;
+        bool out_append = false;
         char *err_filename = NULL;
 
-        for (int i = 0; i < nargs; i++) {
+        int args_end = nargs;
+
+        for (int i = 0; i < args_end; i++) {
             if ((strcmp(args[i], ">") == 0) || (strcmp(args[i], "1>") == 0)) {
                 out_filename = args[i + 1];
-                args[i] = NULL;
                 if (i < nargs) {
                     nargs = i;
                 }
+                args[i] = NULL;
             }
+
             else if ((strcmp(args[i], "2>") == 0)) {
                 err_filename = args[i + 1];
-                args[i] = NULL;
                 if (i < nargs) {
                     nargs = i;
                 }
+                args[i] = NULL;
+            }
+
+            else if ((strcmp(args[i], ">>") == 0) || (strcmp(args[i], "1>>") == 0)) {
+                out_filename = args[i + 1];
+                out_append = true;
+                if (i < nargs) {
+                    nargs = i;
+                }
+                args[i] = NULL;
             }
         }
+
+        
 
         // redirect stdout to the file for builtins, saving the terminal fd to restore after
         int saved_stdout = -1;
@@ -250,7 +265,7 @@ int main(int argc, char *argv[]) {
                     // child, becomes the program
 
                     if (out_filename != NULL) {
-                        int fd = open(out_filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                        int fd = open(out_filename, O_WRONLY | O_CREAT | (out_append ? O_APPEND : O_TRUNC), 0644);
 
                         if (fd < 0) {
                             perror(out_filename);
@@ -263,7 +278,7 @@ int main(int argc, char *argv[]) {
                     }
 
                     if (err_filename != NULL) {
-                        int fd = open(err_filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                        int fd = open(err_filename, O_WRONLY | O_CREAT | (out_append ? O_APPEND : O_TRUNC), 0644);
 
                         if (fd < 0) {
                             perror(err_filename);

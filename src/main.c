@@ -196,7 +196,7 @@ int main(int argc, char *argv[]) {
 
         // redirect stderr for builtins
         if (err_filename != NULL && is_builtin(args[0])) {
-            int fd = open(err_filename, O_WRONLY | O_CREAT | (out_append ? O_APPEND : O_TRUNC), 0644);
+            int fd = open(err_filename, O_WRONLY | O_CREAT | (err_append ? O_APPEND : O_TRUNC), 0644);
 
             if (fd < 0) {
                 perror(err_filename);
@@ -288,7 +288,7 @@ int main(int argc, char *argv[]) {
                     }
 
                     if (err_filename != NULL) {
-                        int fd = open(err_filename, O_WRONLY | O_CREAT | (out_append ? O_APPEND : O_TRUNC), 0644);
+                        int fd = open(err_filename, O_WRONLY | O_CREAT | (err_append ? O_APPEND : O_TRUNC), 0644);
 
                         if (fd < 0) {
                             perror(err_filename);

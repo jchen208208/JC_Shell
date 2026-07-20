@@ -71,7 +71,7 @@ static int read_line(char *buf, int size) {
             const char *match = NULL;
             int count = 0;
 
-            for (int i = 0; i < (sizeof(candidates) / sizofe(candidates[0])); i++) {
+            for (int i = 0; i < (sizeof(candidates) / sizeof(candidates[0])); i++) {
                 if (strncmp(candidates[0], buf, len) == 0) {
                     match = candidates[i];
                     count++;

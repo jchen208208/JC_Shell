@@ -72,14 +72,14 @@ static int read_line(char *buf, int size) {
             int count = 0;
 
             for (int i = 0; i < (sizeof(candidates) / sizeof(candidates[0])); i++) {
-                if (strncmp(candidates[0], buf, len) == 0) {
+                if (strncmp(candidates[i], buf, len) == 0) {
                     match = candidates[i];
                     count++;
                 }
             }
 
             if (count == 1) {
-                printf("%s ", match + len + 1);
+                printf("%s ", match + len);
                 strcpy(buf, match);
                 len = strlen(match);
                 buf[len++] = ' ';

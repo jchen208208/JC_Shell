@@ -86,7 +86,7 @@ static int read_line(char *buf, int size) {
             }
 
             if (count == 0) {
-                printf('\x07');
+                printf("\x07");
                 continue;
             }
 

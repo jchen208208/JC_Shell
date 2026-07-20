@@ -5,7 +5,9 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <termios.h>
 
+// checks if the command is builtin for type command
 static bool is_builtin(const char *command) {
     return strcmp(command, "echo") == 0 ||
            strcmp(command, "exit") == 0 ||
@@ -14,6 +16,7 @@ static bool is_builtin(const char *command) {
            strcmp(command, "cd") == 0;
 }
 
+// finds the absolute path of a file
 static char *find_in_path(const char *command) {
     char *path_env = getenv("PATH");
 
@@ -41,6 +44,60 @@ static char *find_in_path(const char *command) {
     
     }
 
+// line reading function
+static int read_line(char *buf, int size) {
+    struct termios orig, raw;
+    tcgetattr(0, &orig);
+    raw = orig;
+    raw.c_lflag &= ~(ICANON | ECHO);
+    tcsetattr(0, TCSANOW, &raw);
+
+    // reading loop
+    int len = 0;
+    int result = 0;
+    char c;
+
+    while (true) {
+        if (read(0, &c, 1) != 1) {
+            result = -1;
+            break;
+        }
+        if (c == '\n') {
+            puts("");
+            break;
+        }
+        if (c == '\t') {
+            const char candidates[][24] = {"echo", "exit"};
+            const char *match = NULL;
+            int count = 0;
+
+            for (int i = 0; i < (sizeof(candidates) / sizofe(candidates[0])); i++) {
+                if (strncmp(candidates[0], buf, len) == 0) {
+                    match = candidates[i];
+                    count++;
+                }
+            }
+
+            if (count == 1) {
+                printf("%s ", match + len);
+                strcpy(buf, match);
+                len = strlen(match);
+                buf[len++] = " ";
+            }
+
+            continue;
+        }
+        if (len < size - 1) {
+            buf[len++] = c;
+            printf("%c", c);
+        }
+    }
+
+    buf[len] = '\0';
+    tcsetattr(0, TCSANOW, &orig);
+    return result;
+}
+
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
 
@@ -49,11 +106,10 @@ int main(int argc, char *argv[]) {
 
         // take cli input
         char input[100];
-        if (!fgets(input, sizeof(input), stdin)) {
+        if (read_line(input, sizeof(input)) < 0) {
             break;
         }
 
-        input[strcspn(input, "\n")] = '\0';
 
         // tokenization step (breaking input into arguments array)
         char *args[64];

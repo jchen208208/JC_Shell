@@ -79,7 +79,7 @@ static int read_line(char *buf, int size) {
             }
 
             if (count == 1) {
-                printf("%s ", match + len);
+                printf("%s ", match + len + 1);
                 strcpy(buf, match);
                 len = strlen(match);
                 buf[len++] = ' ';

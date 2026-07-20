@@ -16,7 +16,7 @@ static bool is_builtin(const char *command) {
            strcmp(command, "cd") == 0;
 }
 
-// finds the absolute path of a file
+// returns the absolute path of an executable file
 static char *find_in_path(const char *command) {
     char *path_env = getenv("PATH");
 
@@ -83,6 +83,11 @@ static int read_line(char *buf, int size) {
                 strcpy(buf, match);
                 len = strlen(match);
                 buf[len++] = ' ';
+            }
+
+            if (count == 0) {
+                printf('\x07');
+                continue;
             }
 
             continue;

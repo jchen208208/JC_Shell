@@ -131,10 +131,15 @@ static int read_line(char *buf, int size) {
             if (count > 1) {
                 if (!prev_tab) {
                     printf("\x07");
+                    prev_tab = true;
                 }
                 else if (prev_tab) {
+                    puts("");
                     for (int i = 0; i < count; i++) {
-                        printf("%s ", match[i]);
+                        printf("%s", match[i]);
+                        if (i < count - 1) {
+                            printf("  ");
+                        }
                     }
                     prev_tab = false;
                 }
@@ -144,6 +149,7 @@ static int read_line(char *buf, int size) {
         }
         if (len < size - 1) {
             buf[len++] = c;
+            prev_tab = false;
             printf("%c", c);
         }
     }

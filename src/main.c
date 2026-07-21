@@ -133,10 +133,10 @@ static int read_line(char *buf, int size) {
                     printf("\x07");
                 }
                 else if (prev_tab) {
-                    puts("");
                     for (int i = 0; i < count; i++) {
                         printf("%s ", match[i]);
                     }
+                    prev_tab = false;
                 }
             }
 

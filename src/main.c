@@ -117,6 +117,16 @@ static int read_line(char *buf, int size) {
 
             qsort(match, count, sizeof(match[0]), cmp_name);
 
+            // finding the longest common prefix amongst the matches
+            int lcp = strlen(match[0]);
+            for (int i = 1; i < count; i++) {
+                int j = 0;
+                while (j < lcp && match[i][j] == match[0][j]) {
+                    j++;
+                }
+                lcp = j;
+            }
+
             if (count == 1) {
                 printf("%s ", match[0] + len);
                 strcpy(buf, match[0]);
@@ -128,22 +138,33 @@ static int read_line(char *buf, int size) {
                 printf("\x07");
             }
 
-            if (count > 1) {
-                if (!prev_tab) {
-                    printf("\x07");
-                    prev_tab = true;
-                }
-                else if (prev_tab) {
-                    puts("");
-                    for (int i = 0; i < count; i++) {
-                        printf("%s", match[i]);
-                        if (i < count - 1) {
-                            printf("  ");
-                        }
+            if (count > 1 && lcp > strlen(buf)) {
+                if (lcp > len) {
+                    printf("%.*s", lcp - len, match[0] + len); // only show the characters after len but before the lcp mark for partial completion
+                    for (int i = len; i < lcp; i++) {
+                        buf[i] = match[0][i];
+                        len = lcp;
+                        prev_tab = false;
                     }
-                    // reprints what the user had typed before pressing tab twice. .* is filled by len as the max length of the string since buf isn't null terminated yet
-                    printf("\n$ %.*s", len, buf);
-                    prev_tab = false;
+                }
+
+                else {
+                    if (!prev_tab) {
+                        printf("\x07");
+                        prev_tab = true;
+                    }
+                    else if (prev_tab) {
+                        puts("");
+                        for (int i = 0; i < count; i++) {
+                            printf("%s", match[i]);
+                            if (i < count - 1) {
+                                printf("  ");
+                            }
+                        }
+                        // reprints what the user had typed before pressing tab twice. .* is filled by len as the max length of the string since buf isn't null terminated yet
+                        printf("\n$ %.*s", len, buf);
+                        prev_tab = false;
+                    }
                 }
             }
 

@@ -45,6 +45,18 @@ static char *find_in_path(const char *command) {
     
     }
 
+// helper check duplicates function
+static bool already_have(char list[][256], int n, const char *name) {
+    for (int i = 0; i < n; i++)
+        if (strcmp(list[i], name) == 0) return true;
+    return false;
+}
+
+// helper sort function
+static int cmp_name(const void *a, const void *b) {
+    return strcmp((const char *)a, (const char *)b);
+}
+
 // line reading function
 static int read_line(char *buf, int size) {
     struct termios orig, raw;
@@ -57,26 +69,28 @@ static int read_line(char *buf, int size) {
     int len = 0;
     int result = 0;
     char c;
+    bool prev_tab = false;
 
     while (true) {
         if (read(0, &c, 1) != 1) {
             result = -1;
+            prev_tab = false;
             break;
         }
         if (c == '\n') {
             puts("");
+            prev_tab = false;
             break;
         }
         if (c == '\t') {
             // auto-completion for builtin commands
-            const char candidates[][24] = {"echo", "exit"};
-            char match[256];
+            const char builtins[][24] = {"echo", "exit"};
+            char match[64][256];
             int count = 0;
 
-            for (int i = 0; i < (sizeof(candidates) / sizeof(candidates[0])); i++) {
-                if (strncmp(candidates[i], buf, len) == 0) {
-                    strcpy(match, candidates[i]);
-                    count++;
+            for (int i = 0; i < (sizeof(builtins) / sizeof(builtins[0])); i++) {
+                if (strncmp(builtins[i], buf, len) == 0) {
+                    strcpy(match[count++], builtins[i]);
                 }
             }
 
@@ -89,11 +103,10 @@ static int read_line(char *buf, int size) {
                     struct dirent *entry;
                     while ((entry = readdir(d)) != NULL) {
                         if (strncmp(entry->d_name, buf, len) == 0) {
-                            if (strcmp(match, entry->d_name) == 0) {
+                            if (already_have(match, count, entry->d_name)) {
                                 continue;
                             }
-                            strcpy(match, (*entry).d_name);
-                            count++;
+                            strcpy(match[count++], (*entry).d_name);
                         }
                     }
                     closedir(d);
@@ -102,15 +115,29 @@ static int read_line(char *buf, int size) {
             }
             free(path_copy);
 
+            qsort(match, count, sizeof(match[0]), cmp_name);
+
             if (count == 1) {
-                printf("%s ", match + len);
-                strcpy(buf, match);
-                len = strlen(match);
+                printf("%s ", match[0] + len);
+                strcpy(buf, match[0]);
+                len = strlen(match[0]);
                 buf[len++] = ' ';
             }
 
             if (count == 0) {
                 printf("\x07");
+            }
+
+            if (count > 1) {
+                if (!prev_tab) {
+                    printf("\x07");
+                }
+                else if (prev_tab) {
+                    puts("");
+                    for (int i = 0; i < count; i++) {
+                        printf("%s ", match[i]);
+                    }
+                }
             }
 
             continue;

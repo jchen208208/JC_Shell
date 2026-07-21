@@ -6,6 +6,7 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <termios.h>
+#include <dirent.h>
 
 // checks if the command is builtin for type command
 static bool is_builtin(const char *command) {
@@ -67,16 +68,36 @@ static int read_line(char *buf, int size) {
             break;
         }
         if (c == '\t') {
+            // auto-completion for builtin commands
             const char candidates[][24] = {"echo", "exit"};
-            const char *match = NULL;
+            char match[256];
             int count = 0;
 
             for (int i = 0; i < (sizeof(candidates) / sizeof(candidates[0])); i++) {
                 if (strncmp(candidates[i], buf, len) == 0) {
-                    match = candidates[i];
+                    strcpy(match, candidates[i]);
                     count++;
                 }
             }
+
+            // auto-completion for executatble files
+            char *path_copy = strdup(getenv("PATH"));
+            char *dir = strtok(path_copy, ":");
+            while (dir != NULL) {
+                DIR *d = opendir(dir);
+                if (d != NULL) {
+                    struct dirent *entry;
+                    while ((entry = readdir(d)) != NULL) {
+                        if (strncmp(entry->d_name, buf, len) == 0) {
+                            strcpy(match, (*entry).d_name);
+                            count++;
+                        }
+                    }
+                    closedir(d);
+                }
+                dir = strtok(NULL, ":");
+            }
+            free(path_copy);
 
             if (count == 1) {
                 printf("%s ", match + len);
@@ -87,7 +108,6 @@ static int read_line(char *buf, int size) {
 
             if (count == 0) {
                 printf("\x07");
-                continue;
             }
 
             continue;

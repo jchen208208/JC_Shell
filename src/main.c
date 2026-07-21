@@ -138,7 +138,7 @@ static int read_line(char *buf, int size) {
                 printf("\x07");
             }
 
-            if (count > 1 && lcp > strlen(buf)) {
+            if (count > 1) {
                 if (lcp > len) {
                     printf("%.*s", lcp - len, match[0] + len); // only show the characters after len but before the lcp mark for partial completion
                     for (int i = len; i < lcp; i++) {

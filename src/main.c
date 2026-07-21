@@ -141,6 +141,8 @@ static int read_line(char *buf, int size) {
                             printf("  ");
                         }
                     }
+                    // reprints what the user had typed before pressing tab twice. .* is filled by len as the max length of the string since buf isn't null terminated yet
+                    printf("\n$ %.*s", len, buf);
                     prev_tab = false;
                 }
             }

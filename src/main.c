@@ -89,6 +89,9 @@ static int read_line(char *buf, int size) {
                     struct dirent *entry;
                     while ((entry = readdir(d)) != NULL) {
                         if (strncmp(entry->d_name, buf, len) == 0) {
+                            if (count > 1 && strcmp(match, entry->d_name) == 0) {
+                                continue;
+                            }
                             strcpy(match, (*entry).d_name);
                             count++;
                         }

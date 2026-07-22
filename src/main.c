@@ -83,38 +83,63 @@ static int read_line(char *buf, int size) {
             break;
         }
         if (c == '\t') {
+            // check if we are completing the first word or second word
+            int word_start = 0;
+            for (int i = 0; i < len; i++) {
+                if (buf[i] == ' ') {
+                    word_start = i + 1;
+                }
+            }
+
             // auto-completion for builtin commands
             const char builtins[][24] = {"echo", "exit"};
             char match[64][256];
             int count = 0;
 
-            for (int i = 0; i < (sizeof(builtins) / sizeof(builtins[0])); i++) {
-                if (strncmp(builtins[i], buf, len) == 0) {
-                    strcpy(match[count++], builtins[i]);
+            // completing first word (builtin command or executable file)
+            if (word_start == 0) {
+                for (int i = 0; i < (sizeof(builtins) / sizeof(builtins[0])); i++) {
+                    if (strncmp(builtins[i], buf, len) == 0) {
+                        strcpy(match[count++], builtins[i]);
+                    }
                 }
-            }
 
-            // auto-completion for executatble files
-            char *path_copy = strdup(getenv("PATH"));
-            char *dir = strtok(path_copy, ":");
-            while (dir != NULL) {
-                DIR *d = opendir(dir);
-                if (d != NULL) {
-                    struct dirent *entry;
-                    while ((entry = readdir(d)) != NULL) {
-                        if (strncmp(entry->d_name, buf, len) == 0) {
-                            if (already_have(match, count, entry->d_name)) {
-                                continue;
+                // auto-completion for executatble files
+                char *path_copy = strdup(getenv("PATH"));
+                char *dir = strtok(path_copy, ":");
+                while (dir != NULL) {
+                    DIR *d = opendir(dir);
+                    if (d != NULL) {
+                        struct dirent *entry;
+                        while ((entry = readdir(d)) != NULL) {
+                            if (strncmp(entry->d_name, buf, len) == 0) {
+                                if (already_have(match, count, entry->d_name)) {
+                                    continue;
+                                }
+                                strcpy(match[count++], (*entry).d_name);
                             }
-                            strcpy(match[count++], (*entry).d_name);
+                        }
+                        closedir(d);
+                    }
+                    dir = strtok(NULL, ":");
+                }
+                free(path_copy);
+            }
+            
+            // completing second word (regular file)
+            else {
+                DIR *cwd = opendir(".");
+                if (cwd != NULL) {
+                    struct dirent *entry;
+                    while ((entry = readdir(cwd)) != NULL) {
+                        if (strncmp(entry->d_name, buf + word_start, len - word_start) == 0) {
+                            strcpy(match[count++], entry->d_name);
                         }
                     }
-                    closedir(d);
                 }
-                dir = strtok(NULL, ":");
             }
-            free(path_copy);
 
+            // sorts the list of matches in alphabetical worder
             qsort(match, count, sizeof(match[0]), cmp_name);
 
             // finding the longest common prefix amongst the matches
@@ -127,20 +152,22 @@ static int read_line(char *buf, int size) {
                 lcp = j;
             }
 
+            
+
             if (count == 1) {
-                printf("%s ", match[0] + len);
-                strcpy(buf, match[0]);
-                len = strlen(match[0]);
+                printf("%s ", match[0] + (len - word_start));
+                strcpy(buf + word_start, match[0]);
+                len = word_start + strlen(match[0]);
                 buf[len++] = ' ';
             }
 
             if (count == 0) {
-                printf("\x07");
+                printf("\x07"); // beep sound
             }
 
             if (count > 1) {
-                if (lcp > len) {
-                    printf("%.*s", lcp - len, match[0] + len); // only show the characters after len but before the lcp mark for partial completion
+                if (lcp > (len - word_start)) {
+                    printf("%.*s", lcp - (len - word_start), match[0] + (len - word_start)); // only show the characters after len but before the lcp mark for partial completion
                     for (int i = len; i < lcp; i++) {
                         buf[i] = match[0][i];
                         len = lcp;

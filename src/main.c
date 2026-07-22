@@ -145,10 +145,13 @@ static int read_line(char *buf, int size) {
                     match_start = last_slash + 1;
                 }
 
-                DIR *cwd = opendir(dirpath);
-                if (cwd != NULL) {
+                DIR *d = opendir(dirpath);
+                if (d != NULL) {
                     struct dirent *entry;
-                    while ((entry = readdir(cwd)) != NULL) {
+                    while ((entry = readdir(d)) != NULL) {
+                        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+                            continue;
+                        }
                         if (strncmp(entry->d_name, buf + match_start, len - match_start) == 0) {
                             strcpy(match[count++], entry->d_name);
                         }

@@ -91,6 +91,8 @@ static int read_line(char *buf, int size) {
                 }
             }
 
+            int match_start = word_start;
+
             // auto-completion for builtin commands
             const char builtins[][24] = {"echo", "exit"};
             char match[64][256];
@@ -128,11 +130,26 @@ static int read_line(char *buf, int size) {
             
             // completing second word (regular file)
             else {
-                DIR *cwd = opendir(".");
+                char dirpath[1024] = ".";
+                int last_slash = -1;
+
+                for (int i = word_start; i < len; i++) {
+                    if (buf[i] == '/') {
+                        last_slash = i;
+                    }
+                }
+
+                if (last_slash >= 0) {
+                    memcpy(dirpath, buf + word_start, last_slash - word_start + 1);
+                    dirpath[last_slash - word_start + 1] = '\0';
+                    match_start = last_slash + 1;
+                }
+
+                DIR *cwd = opendir(dirpath);
                 if (cwd != NULL) {
                     struct dirent *entry;
                     while ((entry = readdir(cwd)) != NULL) {
-                        if (strncmp(entry->d_name, buf + word_start, len - word_start) == 0) {
+                        if (strncmp(entry->d_name, buf + match_start, len - match_start) == 0) {
                             strcpy(match[count++], entry->d_name);
                         }
                     }
@@ -152,12 +169,10 @@ static int read_line(char *buf, int size) {
                 lcp = j;
             }
 
-            
-
             if (count == 1) {
-                printf("%s ", match[0] + (len - word_start));
-                strcpy(buf + word_start, match[0]);
-                len = word_start + strlen(match[0]);
+                printf("%s ", match[0] + (len - match_start));
+                strcpy(buf + match_start, match[0]);
+                len = match_start + strlen(match[0]);
                 buf[len++] = ' ';
             }
 
@@ -166,8 +181,8 @@ static int read_line(char *buf, int size) {
             }
 
             if (count > 1) {
-                if (lcp > (len - word_start)) {
-                    printf("%.*s", lcp - (len - word_start), match[0] + (len - word_start)); // only show the characters after len but before the lcp mark for partial completion
+                if (lcp > (len - match_start)) {
+                    printf("%.*s", lcp - (len - match_start), match[0] + (len - match_start)); // only show the characters after len but before the lcp mark for partial completion
                     for (int i = len; i < lcp; i++) {
                         buf[i] = match[0][i];
                         len = lcp;

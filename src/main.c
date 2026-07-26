@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <termios.h>
 #include <dirent.h>
+#include <sys/stat.h>
 
 // checks if the command is builtin for type command
 static bool is_builtin(const char *command) {
@@ -142,8 +143,6 @@ static int read_line(char *buf, int size) {
                 if (last_slash >= 0) {
                     memcpy(dirpath, buf + word_start, last_slash - word_start + 1);
                     dirpath[last_slash - word_start + 1] = '\0';
-                    strcpy(match[count++], dirpath);
-                    strcat(match[count], "/");
                     match_start = last_slash + 1;
                 }
 
@@ -155,9 +154,18 @@ static int read_line(char *buf, int size) {
                             continue;
                         }
                         if (strncmp(entry->d_name, buf + match_start, len - match_start) == 0) {
-                            strcpy(match[count++], entry->d_name);
+                            strcpy(match[count], entry->d_name);
+                            char full_path[2048];
+                            snprintf(full_path, sizeof(full_path), "%s/%s", dirpath, entry->d_name);
+
+                            struct stat st;
+                            if (stat(full_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+                                strcat(match[count], "/");
+                            }
+                            count++;
                         }
                     }
+                    closedir(d);
                 }
             }
 
@@ -175,10 +183,17 @@ static int read_line(char *buf, int size) {
             }
 
             if (count == 1) {
-                printf("%s ", match[0] + (len - match_start));
+                size_t match_len = strlen(match[0]);
+                bool is_dir = match[0][match_len - 1] == '/';
+
+                printf("%s", match[0] + (len - match_start));
                 strcpy(buf + match_start, match[0]);
-                len = match_start + strlen(match[0]);
-                buf[len++] = ' ';
+                len = match_start + match_len;
+
+                if (!is_dir) {
+                    printf(" ");
+                    buf[len++] = ' ';
+                }
             }
 
             if (count == 0) {

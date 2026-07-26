@@ -142,6 +142,8 @@ static int read_line(char *buf, int size) {
                 if (last_slash >= 0) {
                     memcpy(dirpath, buf + word_start, last_slash - word_start + 1);
                     dirpath[last_slash - word_start + 1] = '\0';
+                    strcpy(match[count++], dirpath);
+                    strcat(match[count], "/");
                     match_start = last_slash + 1;
                 }
 

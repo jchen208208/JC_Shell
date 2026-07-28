@@ -173,7 +173,7 @@ static int read_line(char *buf, int size) {
             qsort(match, count, sizeof(match[0]), cmp_name);
 
             // finding the longest common prefix amongst the matches
-            int lcp = strlen(match[0]);
+            int lcp = (count > 1) ? strlen(match[0]) : 0;
             for (int i = 1; i < count; i++) {
                 int j = 0;
                 while (j < lcp && match[i][j] == match[0][j]) {
@@ -203,11 +203,11 @@ static int read_line(char *buf, int size) {
             if (count > 1) {
                 if (lcp > (len - match_start)) {
                     printf("%.*s", lcp - (len - match_start), match[0] + (len - match_start)); // only show the characters after len but before the lcp mark for partial completion
-                    for (int i = len; i < lcp; i++) {
-                        buf[i] = match[0][i];
-                        len = lcp;
-                        prev_tab = false;
+                    for (int i = len -  match_start; i < lcp; i++) {
+                        buf[match_start + i] = match[0][i];
                     }
+                    len = match_start + lcp;
+                    prev_tab = false;
                 }
 
                 else {

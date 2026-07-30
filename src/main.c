@@ -445,6 +445,13 @@ int main(int argc, char *argv[]) {
                 printf("cd: %s: No such file or directory\n", path);
             }
         }
+
+        // register programmable completions for commands like git
+        else if (strcmp(args[0], "complete") == 0) {
+            if (strcmp(args[1], "-p") == 0 && nargs >= 3) {
+                printf("complete: %s: no completion specification", args[2]);
+            }
+        }
         
         // determines the type of the input (builtin, an executable file, or invalid)
         else if (strcmp(args[0], "type") == 0) {

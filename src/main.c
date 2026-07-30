@@ -245,6 +245,26 @@ static int read_line(char *buf, int size) {
     return result;
 }
 
+// struct for storing programmable completion data
+typedef struct {
+    char command[64];
+    char spec[1024];
+} complete_spec;
+
+// array of completion specs
+static complete_spec specs[64];
+static int nspecs = 0;
+
+// finds the completion for a specific command
+static char *find_spec(const char* command) {
+    for (int i = 0; i < nspecs; i++) {
+        if (strcmp(specs[i].command, command) == 0) {
+            return specs[i].spec;
+        }
+    }
+    return NULL;
+}
+
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
 
@@ -448,8 +468,33 @@ int main(int argc, char *argv[]) {
 
         // register programmable completions for commands like git
         else if (strcmp(args[0], "complete") == 0) {
-            if (strcmp(args[1], "-p") == 0 && nargs >= 3) {
-                printf("complete: %s: no completion specification\n", args[2]);
+            if (strcmp(args[1], "-C") == 0 && nargs >= 4) {
+                // args[2] = script path, args[3] = command name
+                int i = 0;
+                // finds the next free index if command not already in array; else, points to the command so we can overwrite the current completion spec
+                while (i < nspecs && strcmp(specs[i].command, args[3]) != 0) {
+                    i++;
+                }
+
+                if (i < 64) {
+                    snprintf(specs[i].command, sizeof(specs[i].command), "%s", args[3]);
+                    snprintf(specs[i].spec, sizeof(specs[i].spec), "%s", args[2]);
+                    if (i == nspecs) {
+                        nspecs++;
+                    }
+                }
+            }
+
+            else if (strcmp(args[1], "-p") == 0 && nargs >= 3) {
+                const char* spec = find_spec(args[2]);
+                // if no command specification found
+                if (spec == NULL) {
+                    printf("complete: %s: no completion specification\n", args[2]);
+                }
+
+                else {
+                    printf("complete -C '%s' %s", spec, args[2]);
+                }
             }
         }
         

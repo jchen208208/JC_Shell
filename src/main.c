@@ -493,7 +493,7 @@ int main(int argc, char *argv[]) {
                 }
 
                 else {
-                    printf("complete -C '%s' %s", spec, args[2]);
+                    printf("complete -C '%s' %s\n", spec, args[2]);
                 }
             }
         }

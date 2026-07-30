@@ -15,7 +15,8 @@ static bool is_builtin(const char *command) {
            strcmp(command, "exit") == 0 ||
            strcmp(command, "type") == 0 ||
            strcmp(command, "pwd") == 0 ||
-           strcmp(command, "cd") == 0;
+           strcmp(command, "cd") == 0 ||
+           strcmp(command, "complete") == 0;
 }
 
 // returns the absolute path of an executable file
@@ -474,7 +475,7 @@ int main(int argc, char *argv[]) {
                 pid_t pid = fork();
 
                 if (pid == 0) {
-                    // child, becomes the program
+                    // child process, becomes the program
 
                     if (out_filename != NULL) {
                         int fd = open(out_filename, O_WRONLY | O_CREAT | (out_append ? O_APPEND : O_TRUNC), 0644);
@@ -510,7 +511,7 @@ int main(int argc, char *argv[]) {
                 }
 
                 else if (pid > 0) {
-                    // paremt waits for the child to finish
+                    // paremt process waits for the child to finish
                     int status;
                     waitpid(pid, &status, 0);
                 }

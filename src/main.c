@@ -449,7 +449,7 @@ int main(int argc, char *argv[]) {
         // register programmable completions for commands like git
         else if (strcmp(args[0], "complete") == 0) {
             if (strcmp(args[1], "-p") == 0 && nargs >= 3) {
-                printf("complete: %s: no completion specification", args[2]);
+                printf("complete: %s: no completion specification\n", args[2]);
             }
         }
         

@@ -59,6 +59,26 @@ static int cmp_name(const void *a, const void *b) {
     return strcmp((const char *)a, (const char *)b);
 }
 
+// struct for storing programmable completion data
+typedef struct {
+    char command[64];
+    char spec[1024];
+} complete_spec;
+
+// array of completion specs
+static complete_spec specs[64];
+static int nspecs = 0;
+
+// finds the completion for a specific command
+static char *find_spec(const char* command) {
+    for (int i = 0; i < nspecs; i++) {
+        if (strcmp(specs[i].command, command) == 0) {
+            return specs[i].spec;
+        }
+    }
+    return NULL;
+}
+
 // line reading function
 static int read_line(char *buf, int size) {
     struct termios orig, raw;
@@ -132,41 +152,66 @@ static int read_line(char *buf, int size) {
             
             // completing second word (regular file)
             else {
-                char dirpath[1024] = ".";
-                int last_slash = -1;
-
-                for (int i = word_start; i < len; i++) {
-                    if (buf[i] == '/') {
-                        last_slash = i;
-                    }
+                char cmd[64];
+                int cmd_len = 0;
+                while (cmd_len < len && buf[cmd_len] != ' ' && cmd_len < (int)sizeof(cmd) - 1) {
+                    cmd_len++;
                 }
-
-                if (last_slash >= 0) {
-                    memcpy(dirpath, buf + word_start, last_slash - word_start + 1);
-                    dirpath[last_slash - word_start + 1] = '\0';
-                    match_start = last_slash + 1;
-                }
-
-                DIR *d = opendir(dirpath);
-                if (d != NULL) {
-                    struct dirent *entry;
-                    while ((entry = readdir(d)) != NULL) {
-                        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-                            continue;
-                        }
-                        if (strncmp(entry->d_name, buf + match_start, len - match_start) == 0) {
-                            strcpy(match[count], entry->d_name);
-                            char full_path[2048];
-                            snprintf(full_path, sizeof(full_path), "%s/%s", dirpath, entry->d_name);
-
-                            struct stat st;
-                            if (stat(full_path, &st) == 0 && S_ISDIR(st.st_mode)) {
-                                strcat(match[count], "/");
+                snprintf(cmd, sizeof(cmd), "%.*s", cmd_len, buf);
+                char *spec = find_spec(cmd);
+                
+                if (spec != NULL) {
+                    FILE *fp = popen(spec, "r");
+                    if (fp != NULL) {
+                        char line[256];
+                        while (count < 64 && fgets(line, sizeof(line), fp) != NULL) {
+                            line[strcspn(line, "\n")] = '\0';
+                            if (line[0] != '\0') {
+                                sprintf(match[count], "%s", line);
+                                count++;
                             }
-                            count++;
+                        }
+                        pclose(fp);
+                    }
+                }
+
+                else {
+                    char dirpath[1024] = ".";
+                    int last_slash = -1;
+
+                    for (int i = word_start; i < len; i++) {
+                        if (buf[i] == '/') {
+                            last_slash = i;
                         }
                     }
-                    closedir(d);
+
+                    if (last_slash >= 0) {
+                        memcpy(dirpath, buf + word_start, last_slash - word_start + 1);
+                        dirpath[last_slash - word_start + 1] = '\0';
+                        match_start = last_slash + 1;
+                    }
+
+                    DIR *d = opendir(dirpath);
+                    if (d != NULL) {
+                        struct dirent *entry;
+                        while ((entry = readdir(d)) != NULL) {
+                            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+                                continue;
+                            }
+                            if (strncmp(entry->d_name, buf + match_start, len - match_start) == 0) {
+                                strcpy(match[count], entry->d_name);
+                                char full_path[2048];
+                                snprintf(full_path, sizeof(full_path), "%s/%s", dirpath, entry->d_name);
+
+                                struct stat st;
+                                if (stat(full_path, &st) == 0 && S_ISDIR(st.st_mode)) {
+                                    strcat(match[count], "/");
+                                }
+                                count++;
+                            }
+                        }
+                        closedir(d);
+                    }
                 }
             }
 
@@ -245,25 +290,6 @@ static int read_line(char *buf, int size) {
     return result;
 }
 
-// struct for storing programmable completion data
-typedef struct {
-    char command[64];
-    char spec[1024];
-} complete_spec;
-
-// array of completion specs
-static complete_spec specs[64];
-static int nspecs = 0;
-
-// finds the completion for a specific command
-static char *find_spec(const char* command) {
-    for (int i = 0; i < nspecs; i++) {
-        if (strcmp(specs[i].command, command) == 0) {
-            return specs[i].spec;
-        }
-    }
-    return NULL;
-}
 
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);

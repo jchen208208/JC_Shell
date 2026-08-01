@@ -526,6 +526,14 @@ int main(int argc, char *argv[]) {
                 }
             }
 
+            else if (strcmp(args[1], "-r") == 0 && nargs >= 3) {
+                for (int i = 0; i < nspecs; i++) {
+                    if (strcmp(specs[i].command, args[2]) == 0) {
+                        specs[i].command[0] = '\0';
+                    }
+                }
+            }
+
             else if (strcmp(args[1], "-p") == 0 && nargs >= 3) {
                 const char* spec = find_spec(args[2]);
                 // if no command specification found

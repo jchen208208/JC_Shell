@@ -530,6 +530,10 @@ int main(int argc, char *argv[]) {
                 }
             }
 
+            else if (strcmp(args[0], "jobs") == 0) {
+                
+            }
+
             else if (strcmp(args[1], "-r") == 0 && nargs >= 3) {
                 for (int i = 0; i < nspecs; i++) {
                     if (strcmp(specs[i].command, args[2]) == 0) {

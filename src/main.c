@@ -310,6 +310,9 @@ static int read_line(char *buf, int size) {
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
 
+    // keeping sequential track of the number of jobs running in the background
+    int njobs = 0;
+    
     while (true) {
         printf("$ ");
 
@@ -401,7 +404,16 @@ int main(int argc, char *argv[]) {
             allocated[nalloc++] = args[nargs++];
         }
 
-        args[nargs] = NULL;
+        args[nargs] = NULL; // null-terminates args array
+
+        // a trailing & means run job in background
+        bool background_job = false;
+        if (strcmp(args[nargs - 1], "&") == 0 && nargs > 0) {
+            background_job = true;
+            args[--nargs] = NULL;
+        }
+
+        // if no args inputed, free args memory and loop
         if (args[0] == NULL) goto free_args;
 
         // checks for standard output and standard error redirections
@@ -620,10 +632,17 @@ int main(int argc, char *argv[]) {
                 }
 
                 else if (pid > 0) {
-                    // paremt process waits for the child to finish
-                    int status;
-                    waitpid(pid, &status, 0);
+                    if (background_job) {
+                        printf("[%d] %d\n", ++njobs, pid); //prints the job number and the child process identifier
+                    }
+
+                    else {
+                        // parent process waits for the child to finish
+                        int status;
+                        waitpid(pid, &status, 0);
+                    }
                 }
+                
                 else {
                     perror("fork");
                 }

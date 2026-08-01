@@ -152,6 +152,7 @@ static int read_line(char *buf, int size) {
             
             // completing second word (regular file)
             else {
+                // programmable command completion
                 char cmd[64];
                 int cmd_len = 0;
                 while (cmd_len < len && buf[cmd_len] != ' ' && cmd_len < (int)sizeof(cmd) - 1) {
@@ -169,9 +170,10 @@ static int read_line(char *buf, int size) {
                             word_start = i + 1;
                         }
                     }
-
+                    
+                    // creates the three arguments to pass to the completer program
                     char cmdline[2048];
-                    snprintf(cmdline, sizeof(cmdline), "%s '%s' '%.*s' '%.*s'", spec, cmd, len - word_start, buf + word_start, word_start - 1 - prev_start, buf + prev_start);
+                    snprintf(cmdline, sizeof(cmdline), "COMP_LINE='%.*s' COMP_POINT=%d %s '%s' '%.*s' '%.*s'", len, buf, len, spec, cmd, len - word_start, buf + word_start, word_start - prev_start - 1, buf + prev_start);
                     
                     FILE *fp = popen(cmdline, "r");
                     if (fp != NULL) {

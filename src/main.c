@@ -16,7 +16,8 @@ static bool is_builtin(const char *command) {
            strcmp(command, "type") == 0 ||
            strcmp(command, "pwd") == 0 ||
            strcmp(command, "cd") == 0 ||
-           strcmp(command, "complete") == 0;
+           strcmp(command, "complete") == 0 ||
+           strcmp(command, "job") == 0;
 }
 
 // returns the absolute path of an executable file
@@ -328,6 +329,12 @@ int main(int argc, char *argv[]) {
         bool in_squote = false;
         bool in_dquote = false;
 
+        char *allocated[64]; // kept to free args addresses after reassignment like >
+        int nalloc = 0;
+        // saving the terminal fd to restore after
+        int saved_stdout = -1;
+        int saved_stderr = -1;
+
         for (int i = 0; input[i] != '\0'; i++) {
             char c = input[i];
             if (in_dquote) {
@@ -372,7 +379,8 @@ int main(int argc, char *argv[]) {
                 else if (c == ' ' || c == '\t') {
                     if (in_token) {
                         token[len] = '\0';
-                        args[nargs++] = strdup(token);
+                        args[nargs] = strdup(token);
+                        allocated[nalloc++] = args[nargs++];
                         len = 0;
                         in_token = false;
                     }
@@ -389,11 +397,12 @@ int main(int argc, char *argv[]) {
 
         if (in_token) {
             token[len] = '\0';
-            args[nargs++] = strdup(token);
+            args[nargs] = strdup(token);
+            allocated[nalloc++] = args[nargs++];
         }
 
         args[nargs] = NULL;
-        if (args[0] == NULL) continue;
+        if (args[0] == NULL) goto free_args;
 
         // checks for standard output and standard error redirections
         char *out_filename = NULL;
@@ -439,18 +448,13 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        
-
-        // redirect stdout to the file for builtins, saving the terminal fd to restore after
-        int saved_stdout = -1;
-        int saved_stderr = -1;
-
+        // redirect stdout to the file for builtins
         if (out_filename != NULL && is_builtin(args[0])) {
             int fd = open(out_filename, O_WRONLY | O_CREAT | (out_append ? O_APPEND : O_TRUNC), 0644);
 
             if (fd < 0) {
                 perror(out_filename);
-                continue;
+                goto free_args;
             }
 
             saved_stdout = dup(1);
@@ -464,7 +468,7 @@ int main(int argc, char *argv[]) {
 
             if (fd < 0) {
                 perror(err_filename);
-                continue;
+                goto free_args;
             }
 
             saved_stderr = dup(2);
@@ -635,6 +639,11 @@ int main(int argc, char *argv[]) {
             dup2(saved_stderr, 2);
             close(saved_stderr);
         }
+
+        free_args:
+            for (int i = 0; i < nalloc; i++) {
+                free(allocated[i]);
+            }
     }
 
     return 0;

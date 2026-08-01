@@ -161,6 +161,18 @@ static int read_line(char *buf, int size) {
                 char *spec = find_spec(cmd);
                 
                 if (spec != NULL) {
+                    int word_start = 0;
+                    int prev_start = 0;
+                    for (int i = 0; i < len; i++) {
+                        if (buf[i] == ' ') {
+                            prev_start = word_start;
+                            word_start = i + 1;
+                        }
+                    }
+
+                    char cmdline[2048];
+                    snprintf(cmdline, sizeof(cmdline), "%s '%s' '%.*s' '%.*s'", spec, cmd, len - word_start, buf + word_start, word_start - 1 - prev_start, buf + prev_start);
+                    
                     FILE *fp = popen(spec, "r");
                     if (fp != NULL) {
                         char line[256];
@@ -278,6 +290,7 @@ static int read_line(char *buf, int size) {
 
             continue;
         }
+        
         if (len < size - 1) {
             buf[len++] = c;
             prev_tab = false;

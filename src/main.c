@@ -573,7 +573,7 @@ int main(int argc, char *argv[]) {
 
         else if (strcmp(args[0], "jobs") == 0) {
             for (int i  = 0; i < njobs; i++) {
-                printf("[%d]%c  %-24s%s%s", jobs[i].number, i == njobs - 1 ? '+' : '-', "Running", jobs[i].command);
+                printf("[%d]%c  %-24s%s", jobs[i].number, i == njobs - 1 ? '+' : '-', "Running", jobs[i].command);
             }
         }
         

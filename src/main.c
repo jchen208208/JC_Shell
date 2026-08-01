@@ -530,10 +530,6 @@ int main(int argc, char *argv[]) {
                 }
             }
 
-            else if (strcmp(args[0], "jobs") == 0) {
-                
-            }
-
             else if (strcmp(args[1], "-r") == 0 && nargs >= 3) {
                 for (int i = 0; i < nspecs; i++) {
                     if (strcmp(specs[i].command, args[2]) == 0) {
@@ -553,6 +549,10 @@ int main(int argc, char *argv[]) {
                     printf("complete -C '%s' %s\n", spec, args[2]);
                 }
             }
+        }
+
+        else if (strcmp(args[0], "jobs") == 0) {
+                
         }
         
         // determines the type of the input (builtin, an executable file, or invalid)

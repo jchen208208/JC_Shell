@@ -173,7 +173,7 @@ static int read_line(char *buf, int size) {
                     char cmdline[2048];
                     snprintf(cmdline, sizeof(cmdline), "%s '%s' '%.*s' '%.*s'", spec, cmd, len - word_start, buf + word_start, word_start - 1 - prev_start, buf + prev_start);
                     
-                    FILE *fp = popen(spec, "r");
+                    FILE *fp = popen(cmdline, "r");
                     if (fp != NULL) {
                         char line[256];
                         while (count < 64 && fgets(line, sizeof(line), fp) != NULL) {

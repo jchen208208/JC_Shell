@@ -80,6 +80,17 @@ static char *find_spec(const char* command) {
     return NULL;
 }
 
+// struct for storing data on background processes
+typedef struct {
+    int number;
+    pid_t pid;
+    char command[128];
+} job;
+
+// array of background jobs
+static job jobs[64];
+static int njobs = 0;
+
 // line reading function
 static int read_line(char *buf, int size) {
     struct termios orig, raw;
@@ -309,9 +320,6 @@ static int read_line(char *buf, int size) {
 
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
-
-    // keeping sequential track of the number of jobs running in the background
-    int njobs = 0;
     
     while (true) {
         printf("$ ");
@@ -564,7 +572,9 @@ int main(int argc, char *argv[]) {
         }
 
         else if (strcmp(args[0], "jobs") == 0) {
-                
+                for (int i  = 0; i < njobs; i++) {
+                    printf("[%d]%c  %-24s%s%s", jobs[i].number, i == njobs - 1 ? '+' : '-', "Running", jobs[i].command);
+                }
         }
         
         // determines the type of the input (builtin, an executable file, or invalid)
@@ -633,6 +643,12 @@ int main(int argc, char *argv[]) {
 
                 else if (pid > 0) {
                     if (background_job) {
+                        if (njobs < 64) {
+                            // stores the current job's data into the jobs array
+                            jobs[njobs].number = njobs + 1;
+                            jobs[njobs].pid = pid;
+                            snprintf(jobs[njobs].command, sizeof(jobs[njobs].command), "%s", input);
+                        }
                         printf("[%d] %d\n", ++njobs, pid); //prints the job number and the child process identifier
                     }
 
@@ -642,7 +658,7 @@ int main(int argc, char *argv[]) {
                         waitpid(pid, &status, 0);
                     }
                 }
-                
+
                 else {
                     perror("fork");
                 }

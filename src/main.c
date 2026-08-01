@@ -572,9 +572,9 @@ int main(int argc, char *argv[]) {
         }
 
         else if (strcmp(args[0], "jobs") == 0) {
-                for (int i  = 0; i < njobs; i++) {
-                    printf("[%d]%c  %-24s%s%s", jobs[i].number, i == njobs - 1 ? '+' : '-', "Running", jobs[i].command);
-                }
+            for (int i  = 0; i < njobs; i++) {
+                printf("[%d]%c  %-24s%s%s", jobs[i].number, i == njobs - 1 ? '+' : '-', "Running", jobs[i].command);
+            }
         }
         
         // determines the type of the input (builtin, an executable file, or invalid)

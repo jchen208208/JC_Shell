@@ -108,11 +108,12 @@ static void reap_jobs(bool show_running) {
         int running = waitpid(jobs[i].pid, NULL, WNOHANG); // WNOHANG means wait don't hang so the parent process still runs while waiting for the child to finish
         // waitpid with WNOHANG returns 0 if the child process is still runing and returns the child pid (> 0) if the child process has exited, without WNOHANG, the parent waits until the child finishes so it can only output the pid when it's done
         if (running== 0) {
+            // if this function is called by jobs command, print the running processes
             if (show_running) {
                 printf("[%d]%c  %-24s%s &\n", jobs[i].number, sign, "Running", jobs[i].command);
             }
-
-            jobs[w++] = jobs[i];    // child still running so don't print anything
+            // else, don't print anything
+            jobs[w++] = jobs[i];
         }
 
         else {
@@ -608,7 +609,6 @@ int main(int argc, char *argv[]) {
 
         else if (strcmp(args[0], "jobs") == 0) {
             // jobs will only show Done if the process finished while the user is typing the prompt. Otherwise, the pre-prompt reap_jobs() will display Done and the process is gone by the time the jobs command is called
-            
             reap_jobs(true); // only display the running commands
         }
         
@@ -680,7 +680,13 @@ int main(int argc, char *argv[]) {
                     if (background_job) {
                         if (njobs < 64) {
                             // stores the current job's data into the jobs array
-                            jobs[njobs].number = njobs + 1;
+                            int max = 0;
+                            for (int i = 0; i < njobs; i++) {
+                                if (jobs[i].number > max) {
+                                    max = jobs[i].number;
+                                }
+                            }
+                            jobs[njobs].number = max + 1;
                             jobs[njobs].pid = pid;
                             int len = strlen(input);
                             // the below bloack is for getting rid of the spaces and & at the end of the input since the format for printing a Done job ommits it
@@ -695,7 +701,8 @@ int main(int argc, char *argv[]) {
                             } // gets rid of spaces between '&' and the actual end of the command
                             snprintf(jobs[njobs].command, sizeof(jobs[njobs].command), "%.*s", len, input);
                         }
-                        printf("[%d] %d\n", ++njobs, pid); //prints the job number and the child process identifier
+                        printf("[%d] %d\n", jobs[njobs].number, pid); //prints the job number and the child process identifier
+                        njobs++;
                     }
 
                     else {

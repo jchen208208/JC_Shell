@@ -593,7 +593,7 @@ int main(int argc, char *argv[]) {
 
                 else {
                     printf("[%d]%c  %-24s%s\n", jobs[i].number, sign, "Done", jobs[i].command);
-                    // don't save the process to the jobs list, no w++
+                    // don't save the process back to the jobs list, no w++
                 }
             }
             njobs = w;

@@ -93,7 +93,7 @@ static job jobs[64];
 static int njobs = 0;
 
 // reaping before each prompt (only displays Done jobs)
-static void reap_jobs(void) {
+static void reap_jobs(bool show_running) {
     int w = 0;   // write index in the jobs array
 
     for (int i = 0; i < njobs; i++) {
@@ -108,6 +108,10 @@ static void reap_jobs(void) {
         int running = waitpid(jobs[i].pid, NULL, WNOHANG); // WNOHANG means wait don't hang so the parent process still runs while waiting for the child to finish
         // waitpid with WNOHANG returns 0 if the child process is still runing and returns the child pid (> 0) if the child process has exited, without WNOHANG, the parent waits until the child finishes so it can only output the pid when it's done
         if (running== 0) {
+            if (show_running) {
+                printf("[%d]%c  %-24s%s &\n", jobs[i].number, sign, "Running", jobs[i].command);
+            }
+
             jobs[w++] = jobs[i];    // child still running so don't print anything
         }
 
@@ -351,8 +355,8 @@ int main(int argc, char *argv[]) {
 
     while (true) {
         // reaps jobs before each new prompt
-        reap_jobs();
-        
+        reap_jobs(false);
+
         printf("$ ");
 
         // take cli input
@@ -604,20 +608,8 @@ int main(int argc, char *argv[]) {
 
         else if (strcmp(args[0], "jobs") == 0) {
             // jobs will only show Done if the process finished while the user is typing the prompt. Otherwise, the pre-prompt reap_jobs() will display Done and the process is gone by the time the jobs command is called
-            reap_jobs();
-
-            for (int i  = 0; i < njobs; i++) {
-                char sign = ' ';
-                if (i == njobs - 1) {
-                    sign = '+';
-                }
-                else if (i == njobs - 2) {
-                    sign = '-';
-                }
-                
-                // only display the running commands
-                printf("[%d]%c  %-24s%s &\n", jobs[i].number, sign, "Running", jobs[i].command);
-            }
+            
+            reap_jobs(true); // only display the running commands
         }
         
         // determines the type of the input (builtin, an executable file, or invalid)

@@ -348,11 +348,11 @@ static int read_line(char *buf, int size) {
 
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
-    
-    // reaps jobs before each new prompt
-    reap_jobs();
 
     while (true) {
+        // reaps jobs before each new prompt
+        reap_jobs();
+        
         printf("$ ");
 
         // take cli input

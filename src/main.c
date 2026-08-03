@@ -8,6 +8,7 @@
 #include <termios.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <ctype.h>
 
 // checks if the command is builtin for type command
 static bool is_builtin(const char *command) {
@@ -572,6 +573,8 @@ int main(int argc, char *argv[]) {
         }
 
         else if (strcmp(args[0], "jobs") == 0) {
+            int w = 0;   // write index in the jobs array
+
             for (int i  = 0; i < njobs; i++) {
                 char sign = ' ';
                 if (i == njobs - 1) {
@@ -581,10 +584,9 @@ int main(int argc, char *argv[]) {
                     sign = '-';
                 }
 
-                int w = 0;   // write index in the jobs array
-                int running = waitpid(jobs[i].pid, NULL, WNOHANG);
-                if (running = 0) {
-                    // waitpid returns 0 with WNOHANG if the child is still runing and returns > 0 if the child process has exited
+                int running = waitpid(jobs[i].pid, NULL, WNOHANG); // WNOHANG means wait don't hang so the parent process still runs while waiting for the child to finish
+                if (running== 0) {
+                    // waitpid with WNOHANG returns 0 if the child process is still runing and returns the child pid (> 0) if the child process has exited, without WNOHANG, the parent waits until the child finishes so it can only output the pid when it's done
                     printf("[%d]%c  %-24s%s\n", jobs[i].number, sign, "Running", jobs[i].command);
                     jobs[w++] = jobs[i];
                 }
@@ -593,9 +595,8 @@ int main(int argc, char *argv[]) {
                     printf("[%d]%c  %-24s%s\n", jobs[i].number, sign, "Done", jobs[i].command);
                     // don't save the process to the jobs list, no w++
                 }
-                
-                njobs = w;
             }
+            njobs = w;
         }
         
         // determines the type of the input (builtin, an executable file, or invalid)
@@ -668,7 +669,18 @@ int main(int argc, char *argv[]) {
                             // stores the current job's data into the jobs array
                             jobs[njobs].number = njobs + 1;
                             jobs[njobs].pid = pid;
-                            snprintf(jobs[njobs].command, sizeof(jobs[njobs].command), "%s", input);
+                            int len = strlen(input);
+                            // the below bloack is for getting rid of the spaces and & at the end of the input since the format for printing a Done job ommits it
+                            while (len > 0 && input[len-1] == ' ' || '\t') {
+                                len--;
+                            } // strips trailing spaces until '&'
+                            if (len > 0 && input[len-1] == '&') {
+                                len--;
+                            } // gets rid of '&'
+                            while (len > 0 && input[len-1] == ' ' || '\t') {
+                                len--;
+                            } // gets rid of spaces between '&' and the actual end of the command
+                            snprintf(jobs[njobs].command, sizeof(jobs[njobs].command), "%.*s", len, input);
                         }
                         printf("[%d] %d\n", ++njobs, pid); //prints the job number and the child process identifier
                     }

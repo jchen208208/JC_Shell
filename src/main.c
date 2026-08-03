@@ -587,7 +587,7 @@ int main(int argc, char *argv[]) {
                 int running = waitpid(jobs[i].pid, NULL, WNOHANG); // WNOHANG means wait don't hang so the parent process still runs while waiting for the child to finish
                 if (running== 0) {
                     // waitpid with WNOHANG returns 0 if the child process is still runing and returns the child pid (> 0) if the child process has exited, without WNOHANG, the parent waits until the child finishes so it can only output the pid when it's done
-                    printf("[%d]%c  %-24s%s\n", jobs[i].number, sign, "Running", jobs[i].command);
+                    printf("[%d]%c  %-24s%s &\n", jobs[i].number, sign, "Running", jobs[i].command);
                     jobs[w++] = jobs[i];
                 }
 

@@ -106,8 +106,10 @@ static void reap_jobs(void) {
         if (waitpid(jobs[i].pid, NULL, WNOHANG) == 0) {
             jobs[w++] = jobs[i];    // child still running so don't print anything
         }
+
         else {
             printf("[%d]%c  %-24s%s\n", jobs[i].number, sign, "Done", jobs[i].command);
+            // don't save the process back  to the jobs list, no w++
         }
     }
     njobs = w;
@@ -613,11 +615,6 @@ int main(int argc, char *argv[]) {
                     // waitpid with WNOHANG returns 0 if the child process is still runing and returns the child pid (> 0) if the child process has exited, without WNOHANG, the parent waits until the child finishes so it can only output the pid when it's done
                     printf("[%d]%c  %-24s%s &\n", jobs[i].number, sign, "Running", jobs[i].command);
                     jobs[w++] = jobs[i];
-                }
-
-                else {
-                    printf("[%d]%c  %-24s%s\n", jobs[i].number, sign, "Done", jobs[i].command);
-                    // don't save the process back  to the jobs list, no w++
                 }
             }
             njobs = w;

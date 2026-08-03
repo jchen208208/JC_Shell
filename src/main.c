@@ -580,7 +580,7 @@ int main(int argc, char *argv[]) {
                 else if (i == njobs - 2) {
                     sign = '-';
                 }
-                printf("[%d]%c  %-24s%s\n", jobs[i].number, i == njobs - 1 ? '+' : '-', "Running", jobs[i].command);
+                printf("[%d]%c  %-24s%s\n", jobs[i].number, sign, "Running", jobs[i].command);
             }
         }
         

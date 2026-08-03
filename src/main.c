@@ -92,6 +92,27 @@ typedef struct {
 static job jobs[64];
 static int njobs = 0;
 
+// reaping before each prompt (only displays Done jobs)
+static void reap_jobs(void) {
+    int w = 0;
+    for (int i = 0; i < njobs; i++) {
+        char sign = ' ';
+                if (i == njobs - 1) {
+                    sign = '+';
+                }
+                else if (i == njobs - 2) {
+                    sign = '-';
+                }
+        if (waitpid(jobs[i].pid, NULL, WNOHANG) == 0) {
+            jobs[w++] = jobs[i];    // child still running so don't print anything
+        }
+        else {
+            printf("[%d]%c  %-24s%s\n", jobs[i].number, sign, "Done", jobs[i].command);
+        }
+    }
+    njobs = w;
+}
+
 // line reading function
 static int read_line(char *buf, int size) {
     struct termios orig, raw;
@@ -322,6 +343,9 @@ static int read_line(char *buf, int size) {
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
     
+    // reaps jobs before each new prompt
+    reap_jobs();
+
     while (true) {
         printf("$ ");
 
@@ -593,7 +617,7 @@ int main(int argc, char *argv[]) {
 
                 else {
                     printf("[%d]%c  %-24s%s\n", jobs[i].number, sign, "Done", jobs[i].command);
-                    // don't save the process back to the jobs list, no w++
+                    // don't save the process back  to the jobs list, no w++
                 }
             }
             njobs = w;

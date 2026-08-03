@@ -580,7 +580,21 @@ int main(int argc, char *argv[]) {
                 else if (i == njobs - 2) {
                     sign = '-';
                 }
-                printf("[%d]%c  %-24s%s\n", jobs[i].number, sign, "Running", jobs[i].command);
+
+                int w = 0;   // write index in the jobs array
+                int running = waitpid(jobs[i].pid, NULL, WNOHANG);
+                if (running = 0) {
+                    // waitpid returns 0 with WNOHANG if the child is still runing and returns > 0 if the child process has exited
+                    printf("[%d]%c  %-24s%s\n", jobs[i].number, sign, "Running", jobs[i].command);
+                    jobs[w++] = jobs[i];
+                }
+
+                else {
+                    printf("[%d]%c  %-24s%s\n", jobs[i].number, sign, "Done", jobs[i].command);
+                    // don't save the process to the jobs list, no w++
+                }
+                
+                njobs = w;
             }
         }
         

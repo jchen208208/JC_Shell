@@ -671,13 +671,13 @@ int main(int argc, char *argv[]) {
                             jobs[njobs].pid = pid;
                             int len = strlen(input);
                             // the below bloack is for getting rid of the spaces and & at the end of the input since the format for printing a Done job ommits it
-                            while (len > 0 && (input[len-1] == ' ' || '\t')) {
+                            while (len > 0 && (input[len-1] == ' ' || input[len-1] == '\t')) {
                                 len--;
                             } // strips trailing spaces until '&'
                             if (len > 0 && input[len-1] == '&') {
                                 len--;
                             } // gets rid of '&'
-                            while (len > 0 && (input[len-1] == ' ' || '\t')) {
+                            while (len > 0 && (input[len-1] == ' ' || input[len-1] == '\t')) {
                                 len--;
                             } // gets rid of spaces between '&' and the actual end of the command
                             snprintf(jobs[njobs].command, sizeof(jobs[njobs].command), "%.*s", len, input);

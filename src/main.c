@@ -573,6 +573,13 @@ int main(int argc, char *argv[]) {
 
         else if (strcmp(args[0], "jobs") == 0) {
             for (int i  = 0; i < njobs; i++) {
+                char sign = ' ';
+                if (i == njobs - 1) {
+                    sign = '+';
+                }
+                else if (i == njobs - 2) {
+                    sign = '-';
+                }
                 printf("[%d]%c  %-24s%s\n", jobs[i].number, i == njobs - 1 ? '+' : '-', "Running", jobs[i].command);
             }
         }

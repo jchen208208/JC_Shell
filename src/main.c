@@ -452,7 +452,7 @@ int main(int argc, char *argv[]) {
 
         // a trailing & means run job in background
         bool background_job = false;
-        if (strcmp(args[nargs - 1], "&") == 0 && nargs > 0) {
+        if (nargs > 0 && strcmp(args[nargs - 1], "&") == 0) {
             background_job = true;
             args[--nargs] = NULL;
         }
@@ -518,7 +518,7 @@ int main(int argc, char *argv[]) {
 
             pid_t pid2 = fork();
             if (pid2 == 0) {
-                dup2(fd[1], 1);   // process 1's stdout is now the pipe
+                dup2(fd[0], 0);   // process 1's stdout is now the pipe
                 close(fd[0]);
                 close(fd[1]);
                 execv(right_path, right);

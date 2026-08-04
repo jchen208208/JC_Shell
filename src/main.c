@@ -10,6 +10,7 @@
 #include <sys/stat.h>
 #include <ctype.h>
 
+
 // checks if the command is builtin for type command
 static bool is_builtin(const char *command) {
     return strcmp(command, "echo") == 0 ||
@@ -123,6 +124,123 @@ static void reap_jobs(bool show_running) {
     }
     njobs = w;
 }
+
+// runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
+static void run_builtin(char **args, int nargs) {
+    // restates everything after "echo"
+    if (strcmp(args[0], "echo") == 0) {
+        for (int i = 1; i < nargs; i++) {
+            printf("%s", args[i]);
+            if (i < nargs - 1) {
+                printf(" ");   // space between args, not after the last
+            }
+        }
+        printf("\n");
+    }
+
+    // returns current working directory
+    else if (strcmp(args[0], "pwd") == 0) {
+        char cwd[1024];
+        if (getcwd(cwd, sizeof(cwd)) != NULL) {
+            printf("%s\n", cwd);
+        }
+    }
+
+    // change directory to input path
+    else if (strcmp(args[0], "cd") == 0) {
+        const char *path = args[1];
+        if (strcmp(path, "~") == 0) {
+            path = getenv("HOME");
+        }
+        if (chdir(path) != 0) {
+            printf("cd: %s: No such file or directory\n", path);
+        }
+    }
+
+    // register programmable completions for commands like git
+    else if (strcmp(args[0], "complete") == 0) {
+        if (strcmp(args[1], "-C") == 0 && nargs >= 4) {
+            // args[2] = script path, args[3] = command name
+            int i = 0;
+            // finds the next free index if command not already in array; else, points to the command so we can overwrite the current completion spec
+            while (i < nspecs && strcmp(specs[i].command, args[3]) != 0) {
+                i++;
+            }
+
+            if (i < 64) {
+                snprintf(specs[i].command, sizeof(specs[i].command), "%s", args[3]);
+                snprintf(specs[i].spec, sizeof(specs[i].spec), "%s", args[2]);
+                if (i == nspecs) {
+                    nspecs++;
+                }
+            }
+        }
+
+        else if (strcmp(args[1], "-r") == 0 && nargs >= 3) {
+            for (int i = 0; i < nspecs; i++) {
+                if (strcmp(specs[i].command, args[2]) == 0) {
+                    specs[i].command[0] = '\0';
+                }
+            }
+        }
+
+        else if (strcmp(args[1], "-p") == 0 && nargs >= 3) {
+            const char* spec = find_spec(args[2]);
+            // if no command specification found
+            if (spec == NULL) {
+                printf("complete: %s: no completion specification\n", args[2]);
+            }
+
+            else {
+                printf("complete -C '%s' %s\n", spec, args[2]);
+            }
+        }
+    }
+
+    else if (strcmp(args[0], "jobs") == 0) {
+        // jobs will only show Done if the process finished while the user is typing the prompt. Otherwise, the pre-prompt reap_jobs() will display Done and the process is gone by the time the jobs command is called
+        reap_jobs(true); // display the running commands
+    }
+        
+    // determines the type of the input (builtin, an executable file, or invalid)
+    else if (strcmp(args[0], "type") == 0) {
+        const char *command = args[1];
+        if (is_builtin(command)) {
+            printf("%s is a shell builtin\n", command);
+        }
+        else {
+            char *full_path = find_in_path(command);
+            if (full_path != NULL) {
+                printf("%s is %s\n", command, full_path);
+                free(full_path);
+            }
+            else {
+                printf("%s: not found\n", command);
+            }
+        }
+    }
+}
+
+// runs one pipeline stage inside a child process after we fork them for the pipe
+static void run_stage(char **argv, int argc) {
+    if (is_builtin(argv[0])) {
+        run_builtin(argv, argc);
+        exit(0);
+    }
+
+    char *path = find_in_path(argv[0]);
+    if (path == NULL) {
+        fprintf(stderr, "%s: command not found\n", argv[0]);
+        exit(127);
+    }
+
+    execv(path, argv);
+
+    // if exec fails:
+    perror("execv");
+    exit(1);
+}
+
 
 // line reading function
 static int read_line(char *buf, int size) {
@@ -457,7 +575,8 @@ int main(int argc, char *argv[]) {
             args[--nargs] = NULL;
         }
 
-        // pipeline detection
+
+        // pipeline detection block
         char *left[10];
         char *right[10];
         int left_len = 0;
@@ -511,9 +630,7 @@ int main(int argc, char *argv[]) {
                 dup2(fd[1], 1);   // process 1's stdout is now the pipe
                 close(fd[0]);
                 close(fd[1]);
-                execv(left_path, left);
-                perror("execv");
-                exit(1);
+                run_stage(left, left_len);
             }
 
             pid_t pid2 = fork();
@@ -521,9 +638,7 @@ int main(int argc, char *argv[]) {
                 dup2(fd[0], 0);   // process 1's stdout is now the pipe
                 close(fd[0]);
                 close(fd[1]);
-                execv(right_path, right);
-                perror("execv");
-                exit(1);
+                run_stage(right, right_len);
             }
 
             // the below block is ran inside the parent:
@@ -537,6 +652,7 @@ int main(int argc, char *argv[]) {
             free(right_path);
             goto free_args;
         }
+
 
         // if no args inputed, free args memory and loop
         if (args[0] == NULL) goto free_args;
@@ -617,98 +733,9 @@ int main(int argc, char *argv[]) {
         if (strcmp(args[0], "exit") == 0) {
             break;
         }
-        
-        // restates everything after "echo"
-        else if (strcmp(args[0], "echo") == 0) {
-            for (int i = 1; i < nargs; i++) {
-                printf("%s", args[i]);
-                if (i < nargs - 1) {
-                    printf(" ");   // space between args, not after the last
-                }
-            }
-            printf("\n");
-        }
 
-        // returns current working directory
-        else if (strcmp(args[0], "pwd") == 0) {
-            char cwd[1024];
-            if (getcwd(cwd, sizeof(cwd)) != NULL) {
-                printf("%s\n", cwd);
-            }
-        }
-
-        // change directory to input path
-        else if (strcmp(args[0], "cd") == 0) {
-            const char *path = args[1];
-            if (strcmp(path, "~") == 0) {
-                path = getenv("HOME");
-            }
-            if (chdir(path) != 0) {
-                printf("cd: %s: No such file or directory\n", path);
-            }
-        }
-
-        // register programmable completions for commands like git
-        else if (strcmp(args[0], "complete") == 0) {
-            if (strcmp(args[1], "-C") == 0 && nargs >= 4) {
-                // args[2] = script path, args[3] = command name
-                int i = 0;
-                // finds the next free index if command not already in array; else, points to the command so we can overwrite the current completion spec
-                while (i < nspecs && strcmp(specs[i].command, args[3]) != 0) {
-                    i++;
-                }
-
-                if (i < 64) {
-                    snprintf(specs[i].command, sizeof(specs[i].command), "%s", args[3]);
-                    snprintf(specs[i].spec, sizeof(specs[i].spec), "%s", args[2]);
-                    if (i == nspecs) {
-                        nspecs++;
-                    }
-                }
-            }
-
-            else if (strcmp(args[1], "-r") == 0 && nargs >= 3) {
-                for (int i = 0; i < nspecs; i++) {
-                    if (strcmp(specs[i].command, args[2]) == 0) {
-                        specs[i].command[0] = '\0';
-                    }
-                }
-            }
-
-            else if (strcmp(args[1], "-p") == 0 && nargs >= 3) {
-                const char* spec = find_spec(args[2]);
-                // if no command specification found
-                if (spec == NULL) {
-                    printf("complete: %s: no completion specification\n", args[2]);
-                }
-
-                else {
-                    printf("complete -C '%s' %s\n", spec, args[2]);
-                }
-            }
-        }
-
-        else if (strcmp(args[0], "jobs") == 0) {
-            // jobs will only show Done if the process finished while the user is typing the prompt. Otherwise, the pre-prompt reap_jobs() will display Done and the process is gone by the time the jobs command is called
-            reap_jobs(true); // display the running commands
-        }
-        
-        // determines the type of the input (builtin, an executable file, or invalid)
-        else if (strcmp(args[0], "type") == 0) {
-            const char *command = args[1];
-            if (is_builtin(command)) {
-                printf("%s is a shell builtin\n", command);
-            }
-            else {
-                char *full_path = find_in_path(command);
-                if (full_path != NULL) {
-                    printf("%s is %s\n", command, full_path);
-                    free(full_path);
-                }
-                else {
-                    printf("%s: not found\n", command);
-                }
-            }
+        else if (is_builtin(args[0])) {
+            run_builtin(args, nargs);
         }
         
         // if the first argument of input is an executable file, run that process using a child process and taking in the rest of the arguments as the child process's arguments

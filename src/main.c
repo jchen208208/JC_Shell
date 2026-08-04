@@ -107,7 +107,7 @@ static void reap_jobs(bool show_running) {
 
         int running = waitpid(jobs[i].pid, NULL, WNOHANG); // WNOHANG means wait don't hang so the parent process still runs while waiting for the child to finish
         // waitpid with WNOHANG returns 0 if the child process is still runing and returns the child pid (> 0) if the child process has exited, without WNOHANG, the parent waits until the child finishes so it can only output the pid when it's done
-        if (running== 0) {
+        if (running == 0) {
             // if this function is called by jobs command, print the running processes
             if (show_running) {
                 printf("[%d]%c  %-24s%s &\n", jobs[i].number, sign, "Running", jobs[i].command);
@@ -356,7 +356,7 @@ int main(int argc, char *argv[]) {
 
     while (true) {
         // reaps jobs before each new prompt
-        reap_jobs(false);
+        reap_jobs(false); // never shows running jobs
 
         printf("$ ");
 
@@ -455,6 +455,87 @@ int main(int argc, char *argv[]) {
         if (strcmp(args[nargs - 1], "&") == 0 && nargs > 0) {
             background_job = true;
             args[--nargs] = NULL;
+        }
+
+        // pipeline detection
+        char *left[10];
+        char *right[10];
+        int left_len = 0;
+        int right_len = 0;
+
+        int pipe_pos = -1;
+        for (int i = 0; i < nargs; i++) {
+            if (strcmp(args[i], "|") == 0) {
+                pipe_pos = i;
+            }
+            else if (pipe_pos == -1) {
+                left[left_len++] = args[i];
+            }
+            else if (i > pipe_pos) {
+                right[right_len++] = args[i];
+            }
+        }
+
+        left[left_len]   = NULL;
+        right[right_len] = NULL;
+        
+        /* Alternatively, I can also make the left and right arrays by just finding the pipe position
+        and then
+        args[pipe_pos] = NULL;
+        char** left  = args;    since args is just the address to the frist element of the array which is a string pointer (char *), that's why the left is a pointer type to the first string pointer in the array
+        char** right = &args[pipe_pos + 1];     similarly for right, it's a pointer to the address of the string pointer element rgith after pipe_pos => &(*(args + pipe_pos + 1))
+        */
+
+        if (pipe_pos != -1) {
+            char *left_path  = find_in_path(left[0]); // command that writes
+            char *right_path = find_in_path(right[0]); // command that reads
+
+            if (left_path == NULL || right_path == NULL) {
+                printf("%s: command not found\n", left_path == NULL ? left[0] : right[0]);
+                free(left_path);
+                free(right_path);
+                goto free_args;
+            }
+
+            int fd[2];
+
+            if(pipe(fd) == -1) {
+                perror("pipe");
+                free(left_path);
+                free(right_path);
+                goto free_args;
+            }
+
+            pid_t pid1 = fork();
+            if (pid1 == 0) {
+                dup2(fd[1], 1);   // process 1's stdout is now the pipe
+                close(fd[0]);
+                close(fd[1]);
+                execv(left_path, left);
+                perror("execv");
+                exit(1);
+            }
+
+            pid_t pid2 = fork();
+            if (pid2 == 0) {
+                dup2(fd[1], 1);   // process 1's stdout is now the pipe
+                close(fd[0]);
+                close(fd[1]);
+                execv(right_path, right);
+                perror("execv");
+                exit(1);
+            }
+
+            // the below block is ran inside the parent:
+            close(fd[0]);
+            close(fd[1]);
+
+            waitpid(pid1, NULL, 0);
+            waitpid(pid2, NULL, 0);
+
+            free(left_path);
+            free(right_path);
+            goto free_args;
         }
 
         // if no args inputed, free args memory and loop
@@ -609,7 +690,7 @@ int main(int argc, char *argv[]) {
 
         else if (strcmp(args[0], "jobs") == 0) {
             // jobs will only show Done if the process finished while the user is typing the prompt. Otherwise, the pre-prompt reap_jobs() will display Done and the process is gone by the time the jobs command is called
-            reap_jobs(true); // only display the running commands
+            reap_jobs(true); // display the running commands
         }
         
         // determines the type of the input (builtin, an executable file, or invalid)
@@ -669,6 +750,8 @@ int main(int argc, char *argv[]) {
                         close(fd);
                     }
 
+                    // executes the executable. Any form of the exec() function replaces the process that called it's memory, and the child process now is the exec() process,
+                    // but the process still has the same PID, parent, and file descriptors so the waitpid() call in the parent still waits for this process to finish.
                     execv(full_path, args);
 
                     // only runs if execv failed

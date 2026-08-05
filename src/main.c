@@ -19,7 +19,8 @@ static bool is_builtin(const char *command) {
            strcmp(command, "pwd") == 0 ||
            strcmp(command, "cd") == 0 ||
            strcmp(command, "complete") == 0 ||
-           strcmp(command, "jobs") == 0;
+           strcmp(command, "jobs") == 0 ||
+           strcmp(command, "history") == 0;
 }
 
 // returns the absolute path of an executable file

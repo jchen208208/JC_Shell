@@ -606,22 +606,11 @@ int main(int argc, char *argv[]) {
         */
 
         if (pipe_pos != -1) {
-            char *left_path  = find_in_path(left[0]); // command that writes
-            char *right_path = find_in_path(right[0]); // command that reads
-
-            if (left_path == NULL || right_path == NULL) {
-                printf("%s: command not found\n", left_path == NULL ? left[0] : right[0]);
-                free(left_path);
-                free(right_path);
-                goto free_args;
-            }
 
             int fd[2];
 
             if(pipe(fd) == -1) {
                 perror("pipe");
-                free(left_path);
-                free(right_path);
                 goto free_args;
             }
 
@@ -648,8 +637,6 @@ int main(int argc, char *argv[]) {
             waitpid(pid1, NULL, 0);
             waitpid(pid2, NULL, 0);
 
-            free(left_path);
-            free(right_path);
             goto free_args;
         }
 

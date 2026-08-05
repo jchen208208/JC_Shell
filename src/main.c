@@ -577,72 +577,85 @@ int main(int argc, char *argv[]) {
 
 
         // pipeline detection block
-        char *left[10];
-        char *right[10];
-        int left_len = 0;
-        int right_len = 0;
+        char **stages[16];
+        int stage_argc[16]; // argument count for each stage
+        int nstages = 0;
+        int start = 0;
 
-        int pipe_pos = -1;
         for (int i = 0; i < nargs; i++) {
             if (strcmp(args[i], "|") == 0) {
-                pipe_pos = i;
-            }
-            else if (pipe_pos == -1) {
-                left[left_len++] = args[i];
-            }
-            else if (i > pipe_pos) {
-                right[right_len++] = args[i];
+                args[i] = NULL;     // NULL terminates to make the array before it one complete stage
+                stages[nstages] = &args[start];     // since args is just the address to the frist element of the array which is a string pointer (char *), so the first element in the stages array is a pointer type to the first string pointer in the args array
+                stage_argc[nstages] = i - start;    // calculates how many argumetns were in this stage
+                nstages++;
+                start = i + 1;  // repositions start to the element after '|'
+                // similarly, for future stages, they will be pointers to the address of the string pointer element right after the new start index => &(*(args + start))
             }
         }
 
-        left[left_len]   = NULL;
-        right[right_len] = NULL;
+        // appends the last stage after the last '|'
+        stages[nstages] = &args[start];
+        stage_argc[nstages] = nargs - start;
+        nstages++;
         
-        /* Alternatively, I can also make the left and right arrays by just finding the pipe position
-        and then
-        args[pipe_pos] = NULL;
-        char** left  = args;    since args is just the address to the frist element of the array which is a string pointer (char *), that's why the left is a pointer type to the first string pointer in the array
-        char** right = &args[pipe_pos + 1];     similarly for right, it's a pointer to the address of the string pointer element rgith after pipe_pos => &(*(args + pipe_pos + 1))
-        */
+        int prev_read = -1;  // the fd for the read end left over from the previous stage
+        
+        
+        pid_t pids[16];
 
-        if (pipe_pos != -1) {
+        if (nstages > 1) {
+            for (int s = 0; s < nstages; s++) {
+                bool last_stage = (s == nstages - 1);
+                int fd[2];
 
-            int fd[2];
+                if (!last_stage && pipe(fd) == -1) {
+                    perror("pipe error");
+                    break;
+                }
 
-            if(pipe(fd) == -1) {
-                perror("pipe");
-                goto free_args;
+                pid_t pid = fork();
+
+                if (pid == 0) {
+                    // on the first stage, it's stdin is just the terminal so we don't set it's read end which is pointing to stage 2
+                    if (prev_read != -1) {
+                        // after the first stage, we set the stdin for the current stage to be the last stage's read fd or prev_read
+                        dup2(prev_read, 0);
+                        close(prev_read);
+                    }
+
+                    if (!last_stage) {
+                        // if it's not the last stage, then we set the write end of the current pipe to be this stage
+                        dup2(fd[1], 1);
+                        close(fd[0]);
+                        close(fd[1]);
+                    }
+
+                    run_stage(stages[s], stage_argc[s]);
+                }
+
+                pids[s] = pid; // stores the child pid into the array
+
+                if (prev_read != -1) {
+                    close(prev_read); // parent doesn't need it
+                }
+                
+                if (!last_stage) {
+                    close(fd[1]);
+                    prev_read = fd[0];  // carry the read end forward
+                }
             }
 
-            pid_t pid1 = fork();
-            if (pid1 == 0) {
-                dup2(fd[1], 1);   // process 1's stdout is now the pipe
-                close(fd[0]);
-                close(fd[1]);
-                run_stage(left, left_len);
+            for (int s = 0; s < nstages; s++) {
+                waitpid(pids[s], NULL, 0);
             }
-
-            pid_t pid2 = fork();
-            if (pid2 == 0) {
-                dup2(fd[0], 0);   // process 1's stdout is now the pipe
-                close(fd[0]);
-                close(fd[1]);
-                run_stage(right, right_len);
-            }
-
-            // the below block is ran inside the parent:
-            close(fd[0]);
-            close(fd[1]);
-
-            waitpid(pid1, NULL, 0);
-            waitpid(pid2, NULL, 0);
 
             goto free_args;
         }
 
-
         // if no args inputed, free args memory and loop
-        if (args[0] == NULL) goto free_args;
+        if (args[0] == NULL) {
+            goto free_args;
+        }
 
         // checks for standard output and standard error redirections
         char *out_filename = NULL;

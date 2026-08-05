@@ -213,8 +213,16 @@ static void run_builtin(char **args, int nargs) {
     }
 
     else if (strcmp(args[0], "history") == 0) {
-        for (int i = 0; i < nhistory; i++) {
-            printf("%5d%c %s\n", history_list[i].order, ' ', history_list[i].command);
+        if (args[1]) {
+            for (int i = nhistory - (int)(args[1]); i < nhistory; i++) {
+                printf("%5d%c %s\n", history_list[i].order, ' ', history_list[i].command);
+            }
+        }
+
+        else {
+            for (int i = 0; i < nhistory; i++) {
+                printf("%5d%c %s\n", history_list[i].order, ' ', history_list[i].command);
+            }
         }
     }
         

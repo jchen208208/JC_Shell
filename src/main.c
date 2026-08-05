@@ -214,17 +214,12 @@ static void run_builtin(char **args, int nargs) {
 
     else if (strcmp(args[0], "history") == 0) {
         if (args[1]) {
-            int i;
-            int limit;
-            if (nhistory <= (int)(args[1])) {
-                i = 0;
-                limit = args[i] - nhistory;
+            int i = atoi(args[1]);
+            int start = nhistory - i;
+            if (start < 0) {
+                start = 0;
             }
-            else {
-                i = nhistory - (int)(args[1]);
-                limit = nhistory;
-            }
-            for (i; i < limit; i++) {
+            for (start; i < nhistory; i++) {
                 printf("%5d%c %s\n", history_list[i].order, ' ', history_list[i].command);
             }
         }

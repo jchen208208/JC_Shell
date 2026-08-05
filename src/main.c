@@ -126,6 +126,15 @@ static void reap_jobs(bool show_running) {
     njobs = w;
 }
 
+// struct for storing commands in history
+typedef struct {
+    int order;
+    char command[128];
+} history;
+
+static history history_list[64];
+static int nhistory;
+
 // runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
 static void run_builtin(char **args, int nargs) {
     // restates everything after "echo"
@@ -201,6 +210,12 @@ static void run_builtin(char **args, int nargs) {
     else if (strcmp(args[0], "jobs") == 0) {
         // jobs will only show Done if the process finished while the user is typing the prompt. Otherwise, the pre-prompt reap_jobs() will display Done and the process is gone by the time the jobs command is called
         reap_jobs(true); // display the running commands
+    }
+
+    else if (strcmp(args[0], "history") == 0) {
+        for (int i = 0; i < nhistory; i++) {
+            printf("\t%d  %s\n", history_list[nhistory].order, history_list[nhistory].command);
+        }
     }
         
     // determines the type of the input (builtin, an executable file, or invalid)
@@ -485,6 +500,10 @@ int main(int argc, char *argv[]) {
             break;
         }
 
+        // saves input (command) to history
+        history_list[nhistory].order = nhistory + 1;
+        snprintf(history_list[nhistory].command, sizeof(history_list[nhistory].command), "%s", input);
+        nhistory++;
 
         // tokenization step (breaking input into arguments array)
         char *args[64];

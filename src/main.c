@@ -219,7 +219,7 @@ static void run_builtin(char **args, int nargs) {
             if (start < 0) {
                 start = 0;
             }
-            for (start; i < nhistory; i++) {
+            for (int i = start; i < nhistory; i++) {
                 printf("%5d%c %s\n", history_list[i].order, ' ', history_list[i].command);
             }
         }

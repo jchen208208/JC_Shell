@@ -284,6 +284,7 @@ static int read_line(char *buf, int size) {
     int result = 0;
     char c;
     bool prev_tab = false;
+    int history_pos = nhistory;
 
     while (true) {
         if (read(0, &c, 1) != 1) {
@@ -482,6 +483,26 @@ static int read_line(char *buf, int size) {
                 }
             }
 
+            continue;
+        }
+
+        // checks for up & down arrow navigation through history
+        if (c == 0x1b) {
+            char seq[2]; // arrows are denoted by 3 bytes, 0x1b, [, A / B (up / down)
+            // read(fd, buffer, max_bytes)
+            if (read(0, &seq[0], 1) != 1 || read(0, &seq[1], 1) != 1) {
+                continue;
+            }
+            if (seq[0] == '[' && seq[1] == 'A') {
+                // up arrow
+                if (history_pos > 0) {
+                    history_pos--;
+                    int n = snprintf(buf, sizeof(buf), "%s", history_list[history_pos].command);
+                    len = (n < sizeof(buf)) ? n : sizeof(buf) - 1;
+                    // display the command from history
+                    printf("\r\x1b[K$ %.*s", len, buf); // '\r' moves the cursor to the front of the line, '\x1b[k' erases the chars from the cursor to the end of the line
+                }
+            }
             continue;
         }
         

@@ -493,6 +493,7 @@ static int read_line(char *buf, int size) {
             if (read(0, &seq[0], 1) != 1 || read(0, &seq[1], 1) != 1) {
                 continue;
             }
+
             if (seq[0] == '[' && seq[1] == 'A') {
                 // up arrow
                 if (history_pos > 0) {
@@ -503,6 +504,18 @@ static int read_line(char *buf, int size) {
                     printf("\r\x1b[K$ %.*s", len, buf); // '\r' moves the cursor to the front of the line, '\x1b[k' erases the chars from the cursor to the end of the line
                 }
             }
+
+            if (seq[0] == '[' && seq[1] == 'B') {
+                // down arrow
+                if (history_pos > 0 && history_pos < nhistory) {
+                    history_pos++;
+                    int n = snprintf(buf, size, "%s", history_list[history_pos].command);
+                    len = (n < size) ? n : size;
+                    // display the command from history
+                    printf("\r\x1b[K$ %.*s", len, buf); // '\r' moves the cursor to the front of the line, '\x1b[k' erases the chars from the cursor to the end of the line
+                }
+            }
+
             continue;
         }
         

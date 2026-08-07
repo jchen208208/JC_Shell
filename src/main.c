@@ -497,8 +497,8 @@ static int read_line(char *buf, int size) {
                 // up arrow
                 if (history_pos > 0) {
                     history_pos--;
-                    int n = snprintf(buf, sizeof(buf), "%s", history_list[history_pos].command);
-                    len = (n < sizeof(buf)) ? n : sizeof(buf) - 1;
+                    int n = snprintf(buf, size, "%s", history_list[history_pos].command);
+                    len = (n < size) ? n : size;
                     // display the command from history
                     printf("\r\x1b[K$ %.*s", len, buf); // '\r' moves the cursor to the front of the line, '\x1b[k' erases the chars from the cursor to the end of the line
                 }

@@ -292,11 +292,14 @@ static int read_line(char *buf, int size) {
             prev_tab = false;
             break;
         }
+
+        // if enter is pressed, return the string
         if (c == '\n') {
             puts("");
             prev_tab = false;
             break;
         }
+
         if (c == '\t') {
             // check if we are completing the first word or second word
             int word_start = 0;
@@ -511,8 +514,7 @@ static int read_line(char *buf, int size) {
                     history_pos++;
                     int n = snprintf(buf, size, "%s", history_list[history_pos].command);
                     len = (n < size) ? n : size;
-                    // display the command from history
-                    printf("\r\x1b[K$ %.*s", len, buf); // '\r' moves the cursor to the front of the line, '\x1b[k' erases the chars from the cursor to the end of the line
+                    printf("\r\x1b[K$ %.*s", len, buf);
                 }
             }
 

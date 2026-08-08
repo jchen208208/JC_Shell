@@ -245,12 +245,12 @@ static void run_builtin(char **args, int nargs) {
             }
 
             else if (strcmp(args[1], "-a") == 0 && nargs >= 3) {
-                FILE *f = open(args[2], "a");
+                FILE *f = fopen(args[2], "a");
                 if (f) {
                     for (int i = last_appended; i < nhistory; i++) {
-                        frptinf(f, "%s\n",, history_list[i].command);
+                        fprintf(f, "%s\n", history_list[i].command);
                     }
-                    fclose(f)
+                    fclose(f);
                     last_appended = nhistory;
                 }
             }

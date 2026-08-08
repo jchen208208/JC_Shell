@@ -155,6 +155,19 @@ static void load_history(const char *path) {
     fclose(f);
 }
 
+// saves history to the history file on exit (either write or append)
+static void save_history(const char *path, const char *mode, int start) {
+    FILE *f = fopen(path, mode);
+    if (!f) {
+        return;
+    }
+    for (int i = start; i < nhistory; i++) {
+        fprintf(f, "%s\n", history_list[i].command);
+    }
+    fclose(f);
+    last_appended = nhistory;
+}
+
 // runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
 static void run_builtin(char **args, int nargs) {
     // restates everything after "echo"
@@ -254,7 +267,7 @@ static void run_builtin(char **args, int nargs) {
             }
 
             else if (strcmp(args[1], "-w") == 0 && nargs >= 3) {
-                FILE *f = fopen(args[2], "w"); // create if it doens't exist, else truncate
+                FILE *f = fopen(args[2], "w"); // create if it doens't exist, else overwrite
                 if (f) {
                     for (int i = 0; i < nhistory; i++) {
                         fprintf(f, "%s\n", history_list[i].command);
@@ -347,11 +360,6 @@ static int read_line(char *buf, int size) {
     char c;
     bool prev_tab = false;
     int history_pos = nhistory;
-    const char *histfile = getenv("HISTFILE");
-    // if the environment variable is set, then load its contents into the history array
-    if (histfile) {
-        load_history(histfile);
-    }
 
 
     while (true) {
@@ -604,6 +612,13 @@ static int read_line(char *buf, int size) {
 
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
+
+    const char *histfile = getenv("HISTFILE");
+    // if the environment variable is set, then load its contents into the history array
+    if (histfile) {
+        load_history(histfile);
+    }
+
 
     while (true) {
         // reaps jobs before each new prompt
@@ -984,6 +999,11 @@ int main(int argc, char *argv[]) {
             for (int i = 0; i < nalloc; i++) {
                 free(allocated[i]);
             }
+    }
+
+    // writes command to history file on exit
+    if (histfile) {
+        save_history(histfile, "a", last_appended);
     }
 
     return 0;

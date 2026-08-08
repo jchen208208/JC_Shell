@@ -134,6 +134,7 @@ typedef struct {
 
 static history history_list[64];
 static int nhistory;
+static int last_appended; // the index of the first entry that hasn't been appended to the history file yet
 
 // runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
 static void run_builtin(char **args, int nargs) {
@@ -240,6 +241,17 @@ static void run_builtin(char **args, int nargs) {
                         fprintf(f, "%s\n", history_list[i].command);
                     }
                     fclose(f);
+                }
+            }
+
+            else if (strcmp(args[1], "-a") == 0 && nargs >= 3) {
+                FILE *f = open(args[2], "a");
+                if (f) {
+                    for (int i = last_appended; i < nhistory; i++) {
+                        frptinf(f, "%s\n",, history_list[i].command);
+                    }
+                    fclose(f)
+                    last_appended = nhistory;
                 }
             }
 

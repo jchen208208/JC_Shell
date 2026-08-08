@@ -172,6 +172,16 @@ static void save_history(const char *path, const char *mode, int start) {
     last_appended = nhistory;
 }
 
+// struct for storing shell variables
+typedef struct {
+    char name[64];
+    char value[1024];
+    bool exported;
+} variable;
+
+static variable variables[64];
+static int nvars = 0;
+
 // runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
 static void run_builtin(char **args, int nargs) {
     // restates everything after "echo"
@@ -279,6 +289,12 @@ static void run_builtin(char **args, int nargs) {
             for (int i = 0; i < nhistory; i++) {
                 printf("%5d%c %s\n", history_list[i].order, ' ', history_list[i].command);
             }
+        }
+    }
+
+    else if (strcmp(args[0], "declare") == 0) {
+        if (nargs >= 3 && strcmp(args[1], "-p") == 0) {
+            printf("declare: %s: not found\n", args[2]);
         }
     }
         

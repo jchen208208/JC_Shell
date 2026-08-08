@@ -136,17 +136,18 @@ static history history_list[64];
 static int nhistory;
 static int last_appended; // the index of the first entry that hasn't been appended to the history file yet
 
-// used for loading the history file contents into the history array on startup
+// used for loading the history file contents into the history array
 static void load_history(const char *path) {
     FILE *f = fopen(path, "r");
     if (!f) {
         return;
     }
+
     char line[128];
     while (nhistory < 64 && fgets(line, sizeof(line), f)) {
         line[strcspn(line, "\n")] = '\0';
         if (line[0] == '\0') {
-            continue;
+            continue; // empty line = end of file
         }
         history_list[nhistory].order = nhistory + 1;
         snprintf(history_list[nhistory].command, sizeof(history_list[nhistory].command), "%s", line);
@@ -155,15 +156,17 @@ static void load_history(const char *path) {
     fclose(f);
 }
 
-// saves history to the history file on exit (either write or append)
+// saves history to the history file (either write or append)
 static void save_history(const char *path, const char *mode, int start) {
-    FILE *f = fopen(path, mode);
+    FILE *f = fopen(path, mode); // "w" for creating or overwriting the entire file, "a" for appending to the end of the file
     if (!f) {
         return;
     }
+
     for (int i = start; i < nhistory; i++) {
         fprintf(f, "%s\n", history_list[i].command);
     }
+
     fclose(f);
     last_appended = nhistory;
 }
@@ -248,43 +251,15 @@ static void run_builtin(char **args, int nargs) {
     else if (strcmp(args[0], "history") == 0) {
         if (args[1]) {
             if (strcmp(args[1], "-r") == 0 && nargs >= 3) {
-                FILE *f = fopen(args[2], "r");
-                if (f) {
-                    char line[128];
-                    while (nhistory < 64 && fgets(line, sizeof(line), f)) {
-                        line[strcspn(line, "\n")] = '\0';
-                        if (line[0] == '\0') {
-                            continue; // empty line
-                        }
-
-                        // add this line to the history array
-                        history_list[nhistory].order = nhistory + 1;
-                        snprintf(history_list[nhistory].command, sizeof(history_list[nhistory].command), "%s", line);
-                        nhistory++;
-                    }
-                    fclose(f);
-                }
+                load_history(args[2]);
             }
 
             else if (strcmp(args[1], "-w") == 0 && nargs >= 3) {
-                FILE *f = fopen(args[2], "w"); // create if it doens't exist, else overwrite
-                if (f) {
-                    for (int i = 0; i < nhistory; i++) {
-                        fprintf(f, "%s\n", history_list[i].command);
-                    }
-                    fclose(f);
-                }
+                save_history(args[2], "w", 0);
             }
 
             else if (strcmp(args[1], "-a") == 0 && nargs >= 3) {
-                FILE *f = fopen(args[2], "a");
-                if (f) {
-                    for (int i = last_appended; i < nhistory; i++) {
-                        fprintf(f, "%s\n", history_list[i].command);
-                    }
-                    fclose(f);
-                    last_appended = nhistory;
-                }
+                save_history(args[2], "a", last_appended);
             }
 
             else {

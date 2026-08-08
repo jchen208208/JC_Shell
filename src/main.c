@@ -592,6 +592,7 @@ int main(int argc, char *argv[]) {
     // if the environment variable is set, then load its contents into the history array
     if (histfile) {
         load_history(histfile);
+        last_appended = nhistory; // whatever got loaded from the file is already in the file so you want to adjust the last appended index to the number of histories now in the array
     }
 
 

@@ -214,6 +214,25 @@ static void run_builtin(char **args, int nargs) {
 
     else if (strcmp(args[0], "history") == 0) {
         if (args[1]) {
+            if (strcmp(args[1], "-r") == 0 && nargs >= 3) {
+                FILE *f = fopen(args[2], "r");
+                if (f) {
+                    char line[128];
+                    while (nhistory < 64 && fgets(line, sizeof(line), f)) {
+                        line[strcspn(line, "\n")] = '\0';
+                        if (line[0] == '\0') {
+                            continue; // empty line
+                        }
+
+                        // add this line to the history array
+                        history_list[nhistory].order = nhistory + 1;
+                        snprintf(history_list[nhistory].command, sizeof(history_list[nhistory].command), "%s", line);
+                        nhistory++;
+                    }
+                    fclose(f);
+                }
+            }
+
             int i = atoi(args[1]);
             int start = nhistory - i;
             if (start < 0) {
@@ -803,6 +822,7 @@ int main(int argc, char *argv[]) {
             break;
         }
 
+        // runs any built-in commands
         else if (is_builtin(args[0])) {
             run_builtin(args, nargs);
         }

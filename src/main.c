@@ -136,6 +136,25 @@ static history history_list[64];
 static int nhistory;
 static int last_appended; // the index of the first entry that hasn't been appended to the history file yet
 
+// used for loading the history file contents into the history array on startup
+static void load_history(const char *path) {
+    FILE *f = fopen(path, "r");
+    if (!f) {
+        return;
+    }
+    char line[128];
+    while (nhistory < 64 && fgets(line, sizeof(line), f)) {
+        line[strcspn(line, "\n")] = '\0';
+        if (line[0] == '\0') {
+            continue;
+        }
+        history_list[nhistory].order = nhistory + 1;
+        snprintf(history_list[nhistory].command, sizeof(history_list[nhistory].command), "%s", line);
+        nhistory++;
+    }
+    fclose(f);
+}
+
 // runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
 static void run_builtin(char **args, int nargs) {
     // restates everything after "echo"
@@ -328,6 +347,12 @@ static int read_line(char *buf, int size) {
     char c;
     bool prev_tab = false;
     int history_pos = nhistory;
+    const char *histfile = getenv("HISTFILE");
+    // if the environment variable is set, then load its contents into the history array
+    if (histfile) {
+        load_history(histfile);
+    }
+
 
     while (true) {
         if (read(0, &c, 1) != 1) {

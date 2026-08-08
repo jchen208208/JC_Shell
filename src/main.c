@@ -233,13 +233,25 @@ static void run_builtin(char **args, int nargs) {
                 }
             }
 
-            int i = atoi(args[1]);
-            int start = nhistory - i;
-            if (start < 0) {
-                start = 0;
+            else if (strcmp(args[1], "-w") == 0 && nargs >= 3) {
+                FILE *f = fopen(args[2], "w"); // create if it doens't exist, else truncate
+                if (f) {
+                    for (int i = 0; i < nhistory; i++) {
+                        fprintf(f, "%s\n", history_list[i].command);
+                    }
+                    fclose(f);
+                }
             }
-            for (int i = start; i < nhistory; i++) {
-                printf("%5d%c %s\n", history_list[i].order, ' ', history_list[i].command);
+
+            else {
+                int i = atoi(args[1]);
+                int start = nhistory - i;
+                if (start < 0) {
+                    start = 0;
+                }
+                for (int i = start; i < nhistory; i++) {
+                    printf("%5d%c %s\n", history_list[i].order, ' ', history_list[i].command);
+                }
             }
         }
 

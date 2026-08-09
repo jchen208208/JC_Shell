@@ -267,7 +267,7 @@ static int expand_var(const char *s, char *token, int *len) {
             }
         }
         else {
-            return 0;
+            (*len) += chars_used;
         }
     }
 

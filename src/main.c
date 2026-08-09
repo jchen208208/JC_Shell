@@ -182,6 +182,31 @@ typedef struct {
 static variable variables[64];
 static int nvars = 0;
 
+static void set_var(const char *name, const char *value) {
+    int i = 0;
+    // finds the next free index if the variable isn't in the array, else, points at it so we overwrite the value
+    while (i < nvars && strcmp(variables[i].name, name) != 0) {
+        i++;
+    }
+
+    if (i < 64) {
+        snprintf(variables[i].name, sizeof(variables[i].name), "%s", name);
+        snprintf(variables[i].value, sizeof(variables[i].value), "%s", value);
+        if (i == nvars) {
+            nvars++;
+        }
+    }
+}
+
+static variable *find_var(const char *name) {
+    for (int i = 0; i < nvars; i++) {
+        if (strcmp(variables[i].name, name) == 0) {
+            return &variables[i];
+        }
+    }
+    return NULL;
+}
+
 // runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
 static void run_builtin(char **args, int nargs) {
     // restates everything after "echo"
@@ -294,7 +319,22 @@ static void run_builtin(char **args, int nargs) {
 
     else if (strcmp(args[0], "declare") == 0) {
         if (nargs >= 3 && strcmp(args[1], "-p") == 0) {
-            printf("declare: %s: not found\n", args[2]);
+            variable *v = find_var(args[2]);
+            if (v == NULL) {
+                printf("declare: %s: not found\n", args[2]);
+            }
+            else {
+                printf("declare -- %s=\"%s\"\n", v->name, v->value);
+            }
+        }
+
+        else if (nargs == 2) {
+            char *eq_index = strchr(args[1], '=');
+            if (eq_index != NULL) {
+                char name[64];
+                snprintf(name, sizeof(name), "%.*s", (int)(eq_index - args[1]), args[1]); // prints the chars before the '=' into name buffer
+                set_var(name, eq_index + 1);
+            }
         }
     }
         

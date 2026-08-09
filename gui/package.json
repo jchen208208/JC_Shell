@@ -1,0 +1,20 @@
+{
+  "name": "jc-shell-gui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Terminal emulator front-end for JC_Shell",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "rebuild": "electron-rebuild -f -w node-pty"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
+    "electron": "^43.3.0"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
+    "node-pty": "^1.1.0"
+  }
+}

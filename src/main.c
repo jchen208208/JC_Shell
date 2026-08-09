@@ -225,6 +225,31 @@ static bool is_valid_name(const char *name) {
     return true;
 }
 
+// reads a variable name at the start of string s (just past the '$') and appends its value to the token buffer
+static int expand_var(const char *s, char *token, int *len) {
+    if (!isalpha((unsigned char)s[0]) && s[0] != '_') {
+        return 0;
+    }
+
+    char name[64];
+    int n = 0;
+    while (n < 63 && (isalnum((unsigned char)s[n]) || s[n] == '_')) {
+        name[n] = s[n]; // copies the var name into this buffer, checking for invalid chars
+        n++;
+    }
+    name[n] = '\0';
+
+    variable *v = find_var(name);
+    if (v != NULL) {
+        for (int k = 0; v->value[k] != '\0'; k++) {
+            token[(*len)++] = v->value[k]; // copies th variable value into the token buffer in main
+        }
+    }
+
+    // returns how many chars of name it consumed, 0 if s isn't a valid name
+    return n;
+}
+
 // runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
 static void run_builtin(char **args, int nargs) {
     // restates everything after "echo"
@@ -754,12 +779,22 @@ int main(int argc, char *argv[]) {
                         token[len] = '\0';
                         args[nargs] = strdup(token);
                         allocated[nalloc++] = args[nargs++];
-                        len = 0;
+                        len = 0; // start a new token
                         in_token = false;
                     }
                     else {
                         continue;
                     }
+                }
+                else if (c == '$') {
+                    int chars_used = expand_var(&input[i + 1], token, &len); // writes the variable's value into the current token instead of its name
+                    if (chars_used > 0) {
+                        i += chars_used; // skips past the name characters
+                    }
+                    else {
+                        token[len++] = c;
+                    }
+                    in_token = true;
                 }
                 else {
                     token[len++] = c;

@@ -477,6 +477,16 @@ static int read_line(char *buf, int size) {
             break;
         }
 
+        // if backspace is pressed, remove the last available character
+        if (c == 0x7F) {
+            if (len > 0) {
+                len--; // doens't erase the character stored at buf[len] but it will be overwritten on the next iteration
+                printf("\b\x1b[K"); // move the cursor one slot to its left and then erase everything to end of the line
+            }
+            prev_tab = false;
+            continue;
+        }
+
         if (c == '\t') {
             // check if we are completing the first word or second word
             int word_start = 0;

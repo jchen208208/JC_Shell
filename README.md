@@ -2,17 +2,15 @@
 
 I built my own Unix shell in C, from scratch, with no shell libraries.
 
-It handles the core of what bash does day to day: it runs any program on your
+It follows a standard REPL cycle, and it runs any program on your
 PATH, chains them with pipes, redirects input and output, runs jobs in the
 background, expands variables, and has its own tab completion and command
-history written directly against `termios` — no readline.
+history written directly against `termios,` etc. NO readline.
 
-It is not a bash clone. Bash has around 50 builtins and a full scripting
-language on top; this implements a working subset, and I am still adding to it.
-See [ROADMAP.md](ROADMAP.md) for what is done and what is next.
+It is not a bash clone since bash has around 50 builtins and a full scripting
+language on top. I've created a working subset that I'm still adding on to.
 
-Long term, this becomes the backend of a custom terminal app for my own use: a
-Mac app with its own Dock icon, whose window is shaped like a Rotom Dex instead
+I will also create a custom terminal app for my own use with its own Dock icon and a window shaped like a Rotom Dex instead
 of a rectangle, with a custom font and theme inside.
 
 ## What works
@@ -45,10 +43,3 @@ cmake --build build
 ```sh
 ./build/shell
 ```
-
-## Note on terminology
-
-A **shell** parses what you type and runs it — bash, zsh, this project. A
-**terminal emulator** is the GUI that draws the text and owns the window —
-Terminal.app, iTerm2. They are separate programs. Right now this repo is the
-shell; the Rotom Dex terminal emulator is Phase 2.

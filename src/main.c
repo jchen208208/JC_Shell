@@ -207,6 +207,24 @@ static variable *find_var(const char *name) {
     return NULL;
 }
 
+// checks a shell variable name is a valid identifier
+static bool is_valid_name(const char *name) {
+    if (name[0] == '\0') {
+        return false;
+    }
+    // if the first character isn't a letter or underscore, it's invalid
+    if (!isalpha((unsigned char)name[0]) && name[0] != '_') {
+        return false;
+    }
+    // var name can't contain anything other than leter, digits, or underscores
+    for (int i = 1; name[i] != '\0'; i++) {
+        if (!isalnum((unsigned char)name[i]) && name[i] != '_') {
+            return false;
+        }
+    }
+    return true;
+}
+
 // runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
 static void run_builtin(char **args, int nargs) {
     // restates everything after "echo"
@@ -333,7 +351,12 @@ static void run_builtin(char **args, int nargs) {
             if (eq_index != NULL) {
                 char name[64];
                 snprintf(name, sizeof(name), "%.*s", (int)(eq_index - args[1]), args[1]); // prints the chars before the '=' into name buffer
-                set_var(name, eq_index + 1);
+                if (!is_valid_name(name)) {
+                    printf("declare: '%s' is not a valid identifier\n", name);
+                }
+                else {
+                    set_var(name, eq_index + 1);
+                }
             }
         }
     }

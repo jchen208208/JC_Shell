@@ -2,6 +2,17 @@
 
 Where this project is going, and what has to happen to get there.
 
+## Next session — start here
+
+Three bugs found on 2026-08-09, in the order they are worth doing:
+
+1. **[2.1a](#21a-fix-no-prompt-on-startup)** — no `$ ` prompt when the GUI
+   starts. Small, and it makes the app feel broken on launch.
+2. **[1.11](#111-bare-cd-segfaults)** — bare `cd` segfaults the shell. Small,
+   and it is a crash.
+3. **[1.10](#110-cursor-movement-with-left-and-right-arrows)** — left/right
+   arrow navigation. **Not small.** Read that section before starting it.
+
 ## The end goal
 
 A double-clickable Mac app, with its own icon in the Dock, that opens a terminal
@@ -206,6 +217,65 @@ to add the missing seven. The better fix is to have one list that both
 **Passes when:** `de<TAB>` completes to `declare`, and adding a builtin in 1.7
 makes it completable without touching a second list.
 
+### 1.10 Cursor movement with left and right arrows
+
+**Goal:** Left/right arrows move through the line I have typed, and typing
+inserts at the cursor instead of at the end.
+
+**This is the biggest change to `read_line()` so far — do not start it thinking
+it is a two-line fix.** Detecting the arrows genuinely is easy: the escape block
+at `src/main.c:670` already reads the 3-byte sequences, so `[C` (right) and
+`[D` (left) are two more cases next to the existing `[A` and `[B`. Moving the
+cursor on screen is also easy — `\b` or `\x1b[D` left, `\x1b[C` right.
+
+The hard part is that **the entire line editor currently assumes you are always
+at the end of the line.** `len` doubles as both "how long the line is" and
+"where the cursor is". Splitting those apart touches everything:
+
+- A new `cursor` variable, separate from `len`.
+- Typing mid-line must `memmove` the tail right, then redraw from the cursor on.
+- Backspace mid-line must `memmove` the tail left, then redraw — `len--` is only
+  enough because deletion currently happens at the end.
+- After any redraw, the cursor has to be put back where it belongs, since
+  printing the tail leaves it at the end of the line.
+- Tab completion inserts at `len`; it will need to insert at `cursor`.
+- The history redraws at `src/main.c:684` and `694` set `len` and assume the
+  cursor lands at the end. They need to set `cursor` too.
+
+Suggested order: get left/right moving with no editing first (movement only,
+typing still appends at the end — wrong but harmless), then make insertion
+cursor-aware, then deletion, then completion.
+
+**Passes when:**
+```
+type "echo hello", press Left 5 times, type "X"  ->  "echo Xhello"
+press Right 3 times, backspace                   ->  deletes mid-line correctly
+press Left to the start, backspace               ->  does nothing, prompt intact
+```
+
+### 1.11 Bare `cd` segfaults
+
+**Goal:** `cd` with no argument goes to `$HOME`, like bash.
+
+**What to do:** At `src/main.c:296`, `cd` reads `args[1]` and passes it to
+`strcmp` without checking `nargs`. With no argument `args[1]` is `NULL`, and
+`strcmp` dereferences it immediately — the shell dies with SIGSEGV (exit 139),
+confirmed by test.
+
+Use `getenv("HOME")` for the destination rather than hardcoding a path.
+
+While in there, audit the other builtins in `run_builtin()` for the same
+pattern — `complete` at `src/main.c:308` reads `args[1]` before any count check,
+and `type` and `declare` index into `args` too.
+
+**Passes when:**
+```sh
+cd            # goes home, no crash
+pwd           # /Users/botboy
+complete      # no crash
+type          # no crash
+```
+
 ---
 
 ## Phase 2 — The terminal emulator
@@ -258,6 +328,49 @@ resize reflow.
 **Gotcha worth remembering:** `node-pty` is a native module and must be compiled
 against Electron's ABI, not Node's. If it ever throws `NODE_MODULE_VERSION`
 errors after an `npm install` or an Electron upgrade, run `npm run rebuild`.
+
+### 2.1a Fix: no prompt on startup
+
+**Goal:** The `$ ` prompt is visible the moment the window opens.
+
+**Symptom:** `npm start` opens a window with nothing in it. Typing a command and
+pressing Enter works, and the prompt shows up from then on — only the very first
+one is missing.
+
+**Likely cause — a startup race.** `gui/main.js` calls `pty.spawn()` in
+`createWindow()`, immediately after `win.loadFile()`. But `loadFile` is
+asynchronous: the page has not loaded, `renderer.js` has not run, and
+`window.pty.onData` has no listener attached yet. The shell prints its first
+`$ ` right away, `shell.onData` fires, `webContents.send()` delivers to a page
+that is not listening, and the bytes are dropped. Everything after that works
+because by then the listener exists.
+
+**Two ways to fix it:**
+
+- Spawn the PTY only once the page says it is ready — wait for
+  `win.webContents.did-finish-load`, or have `renderer.js` send a `ready` IPC
+  message and spawn on that. Cleanest.
+- Or buffer output in `main.js` until the renderer is ready, then flush it. More
+  code, but it cannot lose output from anything else that prints early either.
+
+**Passes when:** `npm start` shows `$ ` with no keypress needed.
+
+### 2.1b Verify: can backspace eat the prompt?
+
+**Reported, not reproduced.** In Terminal.app the `len > 0` guard in the
+backspace block works correctly — typing `ab` and hitting backspace five times
+emits exactly two erase sequences and then stops, leaving `$ ` intact.
+
+So before writing any fix, **reproduce it in the GUI first.** The two candidates
+worth checking:
+
+- **Line wrapping.** If the typed line is long enough to wrap onto a second row,
+  `\b` at column 0 does not move back up to the previous row. The buffer and the
+  screen then disagree, and it can look like the prompt is being eaten.
+- **After history recall or a multi-match tab completion**, where `len` is
+  reassigned and the redraw at `src/main.c:684` reprints the prompt.
+
+If neither reproduces it, close this as not-a-bug.
 
 ### 2.2 The Rotom Dex shape
 

@@ -352,7 +352,7 @@ static void run_builtin(char **args, int nargs) {
                 char name[64];
                 snprintf(name, sizeof(name), "%.*s", (int)(eq_index - args[1]), args[1]); // prints the chars before the '=' into name buffer
                 if (!is_valid_name(name)) {
-                    printf("declare: '%s=%s': not a valid identifier\n", name, eq_index + 1);
+                    printf("declare: `%s=%s': not a valid identifier\n", name, eq_index + 1);
                 }
                 else {
                     set_var(name, eq_index + 1);

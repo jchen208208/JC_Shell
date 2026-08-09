@@ -227,16 +227,36 @@ static bool is_valid_name(const char *name) {
 
 // reads a variable name at the start of string s (just past the '$') and appends its value to the token buffer
 static int expand_var(const char *s, char *token, int *len) {
-    if (!isalpha((unsigned char)s[0]) && s[0] != '_') {
-        return 0;
-    }
 
     char name[64];
     int n = 0;
-    while (n < 63 && (isalnum((unsigned char)s[n]) || s[n] == '_')) {
-        name[n] = s[n]; // copies the var name into this buffer, checking for invalid chars
-        n++;
+    int chars_used;
+
+    // if variable name is enclosed in braces
+    if (s[0] == '{') {
+        while (n < 63 && s[n + 1] != '}' && s[n + 1] != '\0') {
+            name[n] = s[n + 1];
+            n++;
+        }
+        // at the end of the loop, check if the last character is a '}'
+        if (s[n + 1] != '}') {
+            return 0;
+        }
+        chars_used = n + 2; // for '{' and '}'
     }
+
+    else {
+        if (!isalpha((unsigned char)s[0]) && s[0] != '_') {
+            return 0;
+        }
+        
+        while (n < 63 && (isalnum((unsigned char)s[n]) || s[n] == '_')) {
+            name[n] = s[n]; // copies the var name into this buffer, checking for invalid chars
+            n++;
+        }
+        chars_used = n;
+    }
+
     name[n] = '\0';
 
     variable *v = find_var(name);
@@ -247,7 +267,7 @@ static int expand_var(const char *s, char *token, int *len) {
     }
 
     // returns how many chars of name it consumed, 0 if s isn't a valid name
-    return n;
+    return chars_used;
 }
 
 // runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
@@ -788,6 +808,7 @@ int main(int argc, char *argv[]) {
                 }
                 else if (c == '$') {
                     int chars_used = expand_var(&input[i + 1], token, &len); // writes the variable's value into the current token instead of its name
+                    // if chars_used == 0, then the token is a literal
                     if (chars_used > 0) {
                         i += chars_used; // skips past the name characters
                     }

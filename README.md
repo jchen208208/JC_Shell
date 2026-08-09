@@ -29,7 +29,6 @@ of a rectangle, with a custom font and theme inside.
 ## Not yet
 
 `<` input redirection, `&&` / `||` / `;`, `$?`, globbing, and `~` outside `cd`.
-These are the current work queue in [ROADMAP.md](ROADMAP.md).
 
 ## Build
 

@@ -261,8 +261,13 @@ static int expand_var(const char *s, char *token, int *len) {
 
     variable *v = find_var(name);
     if (v != NULL) {
-        for (int k = 0; v->value[k] != '\0'; k++) {
-            token[(*len)++] = v->value[k]; // copies th variable value into the token buffer in main
+        if (v->value != NULL) {
+            for (int k = 0; v->value[k] != '\0'; k++) {
+                token[(*len)++] = v->value[k]; // copies th variable value into the token buffer in main
+            }
+        }
+        else {
+            return 0;
         }
     }
 

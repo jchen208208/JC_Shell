@@ -261,13 +261,9 @@ static int expand_var(const char *s, char *token, int *len) {
 
     variable *v = find_var(name);
     if (v != NULL) {
-        if (v->value != NULL) {
-            for (int k = 0; v->value[k] != '\0'; k++) {
-                token[(*len)++] = v->value[k]; // copies th variable value into the token buffer in main
-            }
-        }
-        else {
-            (*len) += chars_used;
+        // if the variable value isn't set, nothing is appended and token is still on index 0 for the next word
+        for (int k = 0; v->value[k] != '\0'; k++) {
+            token[(*len)++] = v->value[k]; // copies th variable value into the token buffer in main
         }
     }
 
@@ -813,14 +809,18 @@ int main(int argc, char *argv[]) {
                 }
                 else if (c == '$') {
                     int chars_used = expand_var(&input[i + 1], token, &len); // writes the variable's value into the current token instead of its name
-                    // if chars_used == 0, then the token is a literal
                     if (chars_used > 0) {
                         i += chars_used; // skips past the name characters
+                        if (len > 0) {
+                            in_token = true; // so $hello{world} would be in token but ${hello}world wouldn't be
+                        }
                     }
+                    
+                    // if chars_used == 0, then the token is a literal
                     else {
                         token[len++] = c;
+                        in_token = true;
                     }
-                    in_token = true;
                 }
                 else {
                     token[len++] = c;

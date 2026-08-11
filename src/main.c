@@ -28,6 +28,21 @@ static bool is_builtin(const char *command) {
 static char *find_in_path(const char *command) {
     char *path_env = getenv("PATH");
 
+    // if the command has a '/' in it, just return it as is because it will work in the exec() functions already. also fixes the './' issues since a file starting with ./ won't be in PATH
+    if (strchr(command, '/') != NULL) {
+        struct stat st;
+        if (stat(command, &st) == 0) { // kernel will fill the stat struct with metadata about the file, 0 = success
+            if (S_ISREG(st.st_mode)) {
+                // if the command is a file and not a directory
+                if (access(command, X_OK) == 0) {
+                    // if the file is an executable, just return the command
+                    return strdup(command); 
+                }
+            }
+        }
+        return NULL;  // anything with a slash should never fall through to PATH
+    }
+
         if (path_env != NULL) {
             // Duplicate path_env because strtok modifies the string
             char *path_copy = strdup(path_env);

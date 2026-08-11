@@ -9,18 +9,62 @@
       body {
         margin: 0;
         height: 100%;
-        background: #1e1e2e;
+        background: transparent;
         overflow: hidden;
       }
+      :root {
+        --screen-x: 0px;
+        --screen-y: 0px;
+        --screen-w: 100px;
+        --screen-h: 100px;
+      }
+      .frame {
+        position: absolute;
+        inset: 0;
+        -webkit-app-region: drag;
+      }
+      [data-mode='framed'] .frame,
+      [data-mode='fullscreen'] .frame {
+        background: #e8622c;
+        border-radius: 24px;
+        image-rendering: pixelated;
+      }
+      .placeholder-bezel {
+        position: absolute;
+        left: calc(var(--screen-x) - 8px);
+        top: calc(var(--screen-y) - 8px);
+        width: calc(var(--screen-w) + 16px);
+        height: calc(var(--screen-h) + 16px);
+        background: #3a2418;
+        border-radius: 6px;
+      }
+      .placeholder-label {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 12px;
+        text-align: center;
+        font: 11px/1 Menlo, monospace;
+        letter-spacing: 0.14em;
+        color: rgba(0, 0, 0, 0.55);
+      }
       #terminal {
-        height: 100%;
-        padding: 8px;
-        box-sizing: border-box;
+        position: absolute;
+        left: var(--screen-x);
+        top: var(--screen-y);
+        width: var(--screen-w);
+        height: var(--screen-h);
+        -webkit-app-region: no-drag;
       }
     </style>
   </head>
   <body>
+    <div class="frame">
+      <div class="placeholder-bezel"></div>
+      <div class="placeholder-label">PLACEHOLDER FRAME</div>
+    </div>
     <div id="terminal"></div>
+    <script src="layout.js"></script>
     <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
     <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
     <script src="renderer.js"></script>

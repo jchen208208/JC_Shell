@@ -1,7 +1,3 @@
-// The page side: draws the terminal and forwards keystrokes.
-// xterm.js only renders -- every byte typed here goes to the shell via the
-// preload bridge, and everything the shell prints comes back the same way.
-
 const term = new Terminal({
   fontFamily: 'Menlo, Monaco, monospace',
   fontSize: 14,
@@ -12,25 +8,31 @@ const term = new Terminal({
     cursor: '#f5e0dc',
   },
 });
-
 const fitAddon = new FitAddon.FitAddon();
 term.loadAddon(fitAddon);
 term.open(document.getElementById('terminal'));
-
-window.pty.onData((data) => term.write(data));
-term.onData((data) => window.pty.send(data));
-
-// Keep the shell's idea of the window size in sync with the actual size.
+function applyLayout() {
+  const { screen, scale } = LAYOUT;
+  const root = document.documentElement.style;
+  root.setProperty('--screen-x', `${screen.x * scale}px`);
+  root.setProperty('--screen-y', `${screen.y * scale}px`);
+  root.setProperty('--screen-w', `${screen.w * scale}px`);
+  root.setProperty('--screen-h', `${screen.h * scale}px`);
+}
 function syncSize() {
   fitAddon.fit();
   window.pty.resize(term.cols, term.rows);
 }
-
+window.pty.onData((data) => term.write(data));
+term.onData((data) => window.pty.send(data));
 window.addEventListener('resize', syncSize);
-
-// The shell is not running yet. Nothing is listening for its first `$ ` until
-// the onData handler above exists, so the main process waits for this call
-// before spawning -- and starts the PTY at the size we just measured.
+window.ui.onMode((mode) => {
+  document.body.dataset.mode = mode;
+  applyLayout();
+  syncSize();
+});
+document.body.dataset.mode = 'framed';
+applyLayout();
 fitAddon.fit();
 window.pty.ready(term.cols, term.rows);
 term.focus();

@@ -4,14 +4,20 @@ Where this project is going, and what has to happen to get there.
 
 ## Next session — start here
 
-Three bugs found on 2026-08-09, in the order they are worth doing:
+Cleared on 2026-08-10: 2.1a, 1.11, and 1.12 (`./hello`). Remaining, in the order
+they are worth doing:
 
-1. **[2.1a](#21a-fix-no-prompt-on-startup)** — no `$ ` prompt when the GUI
-   starts. Small, and it makes the app feel broken on launch.
-2. **[1.11](#111-bare-cd-segfaults)** — bare `cd` segfaults the shell. Small,
-   and it is a crash.
-3. **[1.10](#110-cursor-movement-with-left-and-right-arrows)** — left/right
+1. **[1.13](#113-getenvhome-can-return-null)** — `getenv("HOME")` unchecked in
+   both `cd` paths. Tiny, and it is the same crash shape as 1.11.
+2. **[1.10](#110-cursor-movement-with-left-and-right-arrows)** — left/right
    arrow navigation. **Not small.** Read that section before starting it.
+3. **[1.14](#114-backspace-counts-bytes-not-columns)** — backspace eats the
+   prompt on non-ASCII input. Low priority on its own, but it is the same `len`
+   confusion 1.10 untangles, so do it as part of 1.10.
+
+If you would rather build features than clean up, the Phase 1 sequence starts at
+[1.1](#11-input-redirection-) (`<`) and [1.2](#12-exit-status-and-) (`$?`);
+[1.3](#13-command-separators---) depends on 1.2.
 
 ## The end goal
 
@@ -38,7 +44,10 @@ Verified by running the binary, not by reading the code.
 **Working:**
 
 - Builtins: `echo`, `exit`, `type`, `pwd`, `cd`, `complete`, `jobs`, `history`, `declare`
+- Every builtin survives being called with no arguments (1.11)
 - External programs via PATH lookup + `execv` — `grep`, `ls`, `wc`, `curl`, all of them
+- Running a program by path — `./hello`, `/bin/echo`, `../x/y` (1.12)
+- Command lines up to 1023 chars, matching history buffers
 - Pipelines: `a | b | c`, multi-stage
 - Output redirection: `>`, `1>`, `2>`, `>>`, `1>>`, `2>>`
 - Background jobs with `&`, plus reaping
@@ -59,6 +68,9 @@ Verified by running the binary, not by reading the code.
 | `~` outside `cd` | Prints `~` |
 | Completion inside quotes | Word boundary ignores quotes, so `"My Doc<TAB>` fails |
 | Completion of most builtins | Only `echo` and `exit` are offered, out of nine |
+| Left/right arrows | Ignored; the cursor is always at the end of the line |
+| Backspace on non-ASCII | Erases one column per *byte*, so it eats the `$ ` prompt |
+| `cd` with `HOME` unset | `chdir(NULL)` — segfault |
 
 ---
 
@@ -239,8 +251,13 @@ at the end of the line.** `len` doubles as both "how long the line is" and
 - After any redraw, the cursor has to be put back where it belongs, since
   printing the tail leaves it at the end of the line.
 - Tab completion inserts at `len`; it will need to insert at `cursor`.
-- The history redraws at `src/main.c:684` and `694` set `len` and assume the
+- The history redraws at `src/main.c:721` and `732` set `len` and assume the
   cursor lands at the end. They need to set `cursor` too.
+
+**Decide up front whether `cursor` counts bytes or columns.** Every bug in
+[1.14](#114-backspace-counts-bytes-not-columns) comes from `len` silently
+meaning both. Getting this right here fixes the non-ASCII backspace for free;
+getting it wrong bakes the same confusion in one level deeper.
 
 Suggested order: get left/right moving with no editing first (movement only,
 typing still appends at the end — wrong but harmless), then make insertion
@@ -253,28 +270,92 @@ press Right 3 times, backspace                   ->  deletes mid-line correctly
 press Left to the start, backspace               ->  does nothing, prompt intact
 ```
 
-### 1.11 Bare `cd` segfaults
+### 1.11 Bare `cd` segfaults — DONE (2026-08-10)
 
-**Goal:** `cd` with no argument goes to `$HOME`, like bash.
+`cd`, `complete` and `type` all read `args[1]` before checking `nargs`. The
+tokenizer NULL-terminates the array, so with no argument `args[1]` was `NULL`
+and `strcmp` dereferenced it — SIGSEGV, exit 139, taking the whole shell down
+(builtins run in the shell's own process, not a fork).
 
-**What to do:** At `src/main.c:296`, `cd` reads `args[1]` and passes it to
-`strcmp` without checking `nargs`. With no argument `args[1]` is `NULL`, and
-`strcmp` dereferences it immediately — the shell dies with SIGSEGV (exit 139),
-confirmed by test.
+`complete` needed the guard on *every* branch of its `else if` chain, not just
+the first: falling past a guarded `if` lands on an unguarded `else if`.
 
-Use `getenv("HOME")` for the destination rather than hardcoding a path.
+`history` and `declare` were already correct and are the reference pattern —
+`declare`'s `nargs >= 3 && strcmp(...)` is the better of the two, because `&&`
+short-circuits before the dereference.
 
-While in there, audit the other builtins in `run_builtin()` for the same
-pattern — `complete` at `src/main.c:308` reads `args[1]` before any count check,
-and `type` and `declare` index into `args` too.
+All eight builtins now exit 0 with no arguments, and `cd` with no argument goes
+to `$HOME`. Remaining hole: `getenv("HOME")` itself can be NULL — see 1.13.
+
+### 1.12 Run a program by path — DONE (2026-08-10)
+
+`./hello`, `/bin/echo` and `../x/y` all failed with "command not found".
+`find_in_path()` only ever built `PATH_dir + "/" + command`, so a name that was
+already a path had nothing to match.
+
+The rule: **if the command contains a `/`, do no PATH search at all.** It is
+already a pathname, and the kernel resolves relative paths against the cwd.
+Adding `"."` to PATH would have been the wrong fix — it would not help
+`/bin/echo`, and it would make bare `hello` run a binary from the cwd, which
+bash deliberately refuses.
+
+Two traps this hid:
+
+- **The fall-through mattered.** Before the fix, `./ls` in a directory with no
+  `ls` silently ran `/bin/ls`, because the loop built `/bin/./ls` and `.` is a
+  real directory entry meaning "here". So a slash command must `return NULL`,
+  never continue into the loop. `./hello` only *looked* correct — no PATH
+  directory happens to contain a file named `hello`.
+- **`access(X_OK)` is true for directories**, since execute on a directory means
+  "searchable". Bare `.` resolved to `/bin/.` and reached `execv`. Both branches
+  need `stat` + `S_ISREG` to confirm it is a regular file.
+
+`strdup` on the returned path is required — callers `free()` it, and `command`
+is `args[0]`, freed again by `free_args`. Returning it directly is a double free.
+
+**Verified:** `ls`, `wc`, `./hello`, `./run.sh`, `/bin/echo` work; `./ls`, `.`,
+`..` and a real directory found on PATH all report "command not found".
+
+### 1.13 `getenv("HOME")` can return NULL
+
+**Goal:** `cd` with `HOME` unset prints an error instead of crashing.
+
+**What to do:** Both `cd` paths — the bare-`cd` case added in 1.11 and the `~`
+case beside it — pass `getenv("HOME")` to `chdir()` without checking it.
+`getenv` returns NULL when the variable is not set, and `chdir(NULL)` segfaults.
+Same crash shape as 1.11, one level down.
+
+Bash prints `cd: HOME not set` and returns non-zero.
 
 **Passes when:**
 ```sh
-cd            # goes home, no crash
-pwd           # /Users/botboy
-complete      # no crash
-type          # no crash
+env -i ./build/shell    # then type: cd     -> error message, no crash
 ```
+
+### 1.14 Backspace counts bytes, not columns
+
+**Goal:** Backspace erases one character per keypress, whatever the character.
+
+**What to do:** `read_line()` reads one *byte* at a time and increments `len`
+per byte, but backspace emits one `\b\x1b[K` per `len` step — and `\b` moves one
+*column*. For ASCII those are the same number, which is why the `len > 0` guard
+looks correct. For anything else they diverge, and the extra `\b`s walk left
+through the `$ ` prompt and erase it.
+
+Confirmed through a PTY:
+
+```
+é     2 bytes, 1 column  -> 2 backspaces emitted, 1 column too far
+emoji 4 bytes, 2 columns -> 4 backspaces emitted, 2 columns too far
+ab    2 bytes, 2 columns -> 2 backspaces, correct
+```
+
+This is the same conflation 1.10 has to resolve, so decide there whether the
+cursor is a byte offset or a column offset and this comes with it. Line wrapping
+is the other half of the same problem — `\b` at column 0 does not climb to the
+previous row.
+
+**Passes when:** typing `é` or an emoji and holding backspace leaves `$ ` intact.
 
 ---
 
@@ -329,48 +410,43 @@ resize reflow.
 against Electron's ABI, not Node's. If it ever throws `NODE_MODULE_VERSION`
 errors after an `npm install` or an Electron upgrade, run `npm run rebuild`.
 
-### 2.1a Fix: no prompt on startup
+### 2.1a Fix: no prompt on startup — DONE (2026-08-10)
 
-**Goal:** The `$ ` prompt is visible the moment the window opens.
+**Was:** `npm start` opened a window with nothing in it. The first `$ ` never
+appeared; everything after the first Enter worked.
 
-**Symptom:** `npm start` opens a window with nothing in it. Typing a command and
-pressing Enter works, and the prompt shows up from then on — only the very first
-one is missing.
+**Cause — a startup race.** `main.js` called `pty.spawn()` immediately after
+`win.loadFile()`, but `loadFile` is asynchronous. The page had not loaded,
+`renderer.js` had not run, and no `pty:data` listener existed yet. The shell
+printed its first `$ `, `webContents.send()` delivered it to a page that was not
+listening, and the bytes were dropped.
 
-**Likely cause — a startup race.** `gui/main.js` calls `pty.spawn()` in
-`createWindow()`, immediately after `win.loadFile()`. But `loadFile` is
-asynchronous: the page has not loaded, `renderer.js` has not run, and
-`window.pty.onData` has no listener attached yet. The shell prints its first
-`$ ` right away, `shell.onData` fires, `webContents.send()` delivers to a page
-that is not listening, and the bytes are dropped. Everything after that works
-because by then the listener exists.
+**Fix — a `ready` handshake.** `renderer.js` attaches its `onData` handler,
+fits, then calls `window.pty.ready(cols, rows)`; `main.js` spawns the PTY inside
+`ipcMain.once('pty:ready', ...)`.
 
-**Two ways to fix it:**
+Waiting on `did-finish-load` alone would have traded one race for another:
+`renderer.js` sends its initial `pty:resize` while it runs, which lands today
+only because the handlers register synchronously. Delaying the spawn without
+carrying the size across would drop it and leave the shell at 80x24. Passing
+cols/rows through the ready message fixes both.
 
-- Spawn the PTY only once the page says it is ready — wait for
-  `win.webContents.did-finish-load`, or have `renderer.js` send a `ready` IPC
-  message and spawn on that. Cleanest.
-- Or buffer output in `main.js` until the renderer is ready, then flush it. More
-  code, but it cannot lose output from anything else that prints early either.
+`shell` is null until ready, so the input/resize/kill paths use `shell?.`.
 
-**Passes when:** `npm start` shows `$ ` with no keypress needed.
+**Verified** by instrumenting the main process: `ready received, spawned at
+93 x 30` (the fitted size, not the hardcoded default), then `first chunk "$ "`
+delivered with `loading=false`.
 
-### 2.1b Verify: can backspace eat the prompt?
+### 2.1b Can backspace eat the prompt? — ANSWERED (2026-08-10)
 
-**Reported, not reproduced.** In Terminal.app the `len > 0` guard in the
-backspace block works correctly — typing `ab` and hitting backspace five times
-emits exactly two erase sequences and then stops, leaving `$ ` intact.
+**Yes, but not for either reason guessed here.** Neither line wrapping nor
+history recall was the cause. `read_line()` counts *bytes* while `\b` moves
+*columns*, so any non-ASCII character emits more backspaces than it occupies and
+the surplus walks through the prompt.
 
-So before writing any fix, **reproduce it in the GUI first.** The two candidates
-worth checking:
-
-- **Line wrapping.** If the typed line is long enough to wrap onto a second row,
-  `\b` at column 0 does not move back up to the previous row. The buffer and the
-  screen then disagree, and it can look like the prompt is being eaten.
-- **After history recall or a multi-match tab completion**, where `len` is
-  reassigned and the redraw at `src/main.c:684` reprints the prompt.
-
-If neither reproduces it, close this as not-a-bug.
+Tracked as [1.14](#114-backspace-counts-bytes-not-columns). Line wrapping is
+still a real and separate defect for the same underlying reason, but it corrupts
+the display rather than eating the prompt.
 
 ### 2.2 The Rotom Dex shape
 
@@ -407,3 +483,13 @@ to `/Applications`, double-clickable, with a proper Dock icon.
   misbehaves in the GUI or over SSH.
 - `CMAKE_C_STANDARD 23` currently emits `-std=gnu2x` on AppleClang 14, so it is
   not true C23. Fine for now; worth knowing before relying on a C23-only feature.
+- `find_in_path()` returns NULL for three different failures — does not exist,
+  is not a regular file, is not executable — and the caller prints "command not
+  found" for all three. `./run.sh` without `+x` should say "permission denied".
+  Needs a wider return contract, e.g. reporting through `errno`.
+- The line editor caps input at 1023 chars (`input[1024]`), with the history
+  buffers sized to match. Real shells allocate dynamically; revisit only if the
+  fixed cap actually gets in the way.
+- ASAN is worth keeping in the loop for line-editor work — it caught the
+  `buf[len]` overflow that normal runs sailed straight past:
+  `gcc -std=gnu2x -fsanitize=address -g -o shell_asan src/main.c`

@@ -53,12 +53,18 @@ static char *find_in_path(const char *command) {
                 snprintf(full_path, sizeof(full_path), "%s/%s", dir, command);
 
                 // Check if file exists and is executable
-                if (access(full_path, X_OK) == 0) {
-                    char *result = strdup(full_path);
-                    free(path_copy);
-                    return result;
+                struct stat st;
+                if (stat(full_path, &st) == 0) {
+                    if (S_ISREG(st.st_mode)) {
+                        if (access(full_path, X_OK) == 0) {
+                            char *result = strdup(full_path);
+                            free(path_copy);
+                            return result;
+                        }
+                    }
                 }
-                dir = strtok(NULL, ":");
+
+                dir = strtok(NULL, ":"); // if the previous directory didn't contain the file, check the next one in PATH
             }
             free(path_copy);
         }
@@ -309,51 +315,62 @@ static void run_builtin(char **args, int nargs) {
 
     // change directory to input path
     else if (strcmp(args[0], "cd") == 0) {
-        const char *path = args[1];
-        if (strcmp(path, "~") == 0) {
-            path = getenv("HOME");
+        if (!args[1]) {
+            const char *path = getenv("HOME");
+            if (chdir(path) != 0) {
+                    printf("cd: %s: No such file or directory\n", path);
+                }
         }
-        if (chdir(path) != 0) {
-            printf("cd: %s: No such file or directory\n", path);
+
+        else {
+            const char *path = args[1];
+            if (strcmp(path, "~") == 0) {
+                path = getenv("HOME");
+            }
+            if (chdir(path) != 0) {
+                printf("cd: %s: No such file or directory\n", path);
+            }
         }
     }
 
     // register programmable completions for commands like git
     else if (strcmp(args[0], "complete") == 0) {
-        if (strcmp(args[1], "-C") == 0 && nargs >= 4) {
-            // args[2] = script path, args[3] = command name
-            int i = 0;
-            // finds the next free index if command not already in array; else, points to the command so we can overwrite the current completion spec
-            while (i < nspecs && strcmp(specs[i].command, args[3]) != 0) {
-                i++;
-            }
+        if (args[1]) {
+            if (strcmp(args[1], "-C") == 0 && nargs >= 4) {
+                // args[2] = script path, args[3] = command name
+                int i = 0;
+                // finds the next free index if command not already in array; else, points to the command so we can overwrite the current completion spec
+                while (i < nspecs && strcmp(specs[i].command, args[3]) != 0) {
+                    i++;
+                }
 
-            if (i < 64) {
-                snprintf(specs[i].command, sizeof(specs[i].command), "%s", args[3]);
-                snprintf(specs[i].spec, sizeof(specs[i].spec), "%s", args[2]);
-                if (i == nspecs) {
-                    nspecs++;
+                if (i < 64) {
+                    snprintf(specs[i].command, sizeof(specs[i].command), "%s", args[3]);
+                    snprintf(specs[i].spec, sizeof(specs[i].spec), "%s", args[2]);
+                    if (i == nspecs) {
+                        nspecs++;
+                    }
                 }
             }
-        }
 
-        else if (strcmp(args[1], "-r") == 0 && nargs >= 3) {
-            for (int i = 0; i < nspecs; i++) {
-                if (strcmp(specs[i].command, args[2]) == 0) {
-                    specs[i].command[0] = '\0';
+            else if (strcmp(args[1], "-r") == 0 && nargs >= 3) {
+                for (int i = 0; i < nspecs; i++) {
+                    if (strcmp(specs[i].command, args[2]) == 0) {
+                        specs[i].command[0] = '\0';
+                    }
                 }
             }
-        }
 
-        else if (strcmp(args[1], "-p") == 0 && nargs >= 3) {
-            const char* spec = find_spec(args[2]);
-            // if no command specification found
-            if (spec == NULL) {
-                printf("complete: %s: no completion specification\n", args[2]);
-            }
+            else if (strcmp(args[1], "-p") == 0 && nargs >= 3) {
+                const char* spec = find_spec(args[2]);
+                // if no command specification found
+                if (spec == NULL) {
+                    printf("complete: %s: no completion specification\n", args[2]);
+                }
 
-            else {
-                printf("complete -C '%s' %s\n", spec, args[2]);
+                else {
+                    printf("complete -C '%s' %s\n", spec, args[2]);
+                }
             }
         }
     }
@@ -424,18 +441,20 @@ static void run_builtin(char **args, int nargs) {
         
     // determines the type of the input (builtin, an executable file, or invalid)
     else if (strcmp(args[0], "type") == 0) {
-        const char *command = args[1];
-        if (is_builtin(command)) {
-            printf("%s is a shell builtin\n", command);
-        }
-        else {
-            char *full_path = find_in_path(command);
-            if (full_path != NULL) {
-                printf("%s is %s\n", command, full_path);
-                free(full_path);
+        if (args[1]) {
+            const char *command = args[1];
+            if (is_builtin(command)) {
+                printf("%s is a shell builtin\n", command);
             }
             else {
-                printf("%s: not found\n", command);
+                char *full_path = find_in_path(command);
+                if (full_path != NULL) {
+                    printf("%s is %s\n", command, full_path);
+                    free(full_path);
+                }
+                else {
+                    printf("%s: not found\n", command);
+                }
             }
         }
     }

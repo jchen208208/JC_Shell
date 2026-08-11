@@ -448,15 +448,49 @@ Tracked as [1.14](#114-backspace-counts-bytes-not-columns). Line wrapping is
 still a real and separate defect for the same underlying reason, but it corrupts
 the display rather than eating the prompt.
 
-### 2.2 The Rotom Dex shape
-
-```js
-new BrowserWindow({ transparent: true, frame: false, hasShadow: false })
-```
+### 2.2 The Rotom Dex shape — SCAFFOLD DONE, ART PENDING
 
 The window stays a rectangle — the parts outside the Dex shape are just
-transparent. The shape itself is a PNG or CSS/SVG in the page. Needs a custom
-drag region since `frame: false` removes the title bar.
+transparent.
+
+**Note on the GUI source:** `gui/*.js` and `gui/index.html` are deliberately
+written with no comments and no blank lines. Anything worth explaining goes
+here instead.
+
+**Decided:**
+
+- **Two layouts, one window.** Rotom mode is a fixed-size window; fullscreen
+  gets its own design later. `main.js` sends a `ui:mode` message on
+  `enter-full-screen` / `leave-full-screen`; the page sets `data-mode` on
+  `<body>` and CSS keys off it. Both modes currently render the same frame, so
+  adding the fullscreen look is a new CSS block, not a restructure.
+- **Fixed size, no resizing.** The art is only ever drawn at a whole-number
+  scale — scaling pixel art by a fraction is what makes it look mushy.
+  Fullscreen is the way to get more room.
+- **`layout.js` is the single source of truth** for geometry, required by
+  `main.js` and loaded as a plain `<script>` by the page. Art size, scale and
+  the screen-hole rectangle live there in *art pixels*. All values are
+  placeholders until the real PNG lands.
+- **The terminal covers the screen hole rather than showing through it.** Keeps
+  the z-order trivial. `.frame` is `-webkit-app-region: drag` (the only way to
+  move a frameless window) and `#terminal` is `no-drag`, or every click-drag to
+  select text would move the window.
+
+**Measured, not assumed** (Electron 43, macOS):
+
+- `resizable: false` does **not** disable fullscreen. `isFullScreenable()` is
+  still `true` and the round trip works.
+- **macOS does not hand back the window's original size after fullscreen.** An
+  800x640 window came back as 800x522. `leave-full-screen` must call
+  `setSize()` explicitly, or the art ends up at a fractional scale and blurs.
+- `show: false` in a `BrowserWindow` made `loadFile()` fail with `ERR_FAILED
+  (-2)` and then SIGTRAP the process. Avoided; not investigated further.
+- `loadURL('data:text/html,...')` is blocked for top-level navigation.
+
+**Still to do:** the real artwork. Needs a native-resolution PNG (not upscaled)
+with real alpha around the silhouette and the screen area filled with flat
+`#FF00FF`, so a script can find the exact hole rectangle instead of it being
+eyeballed into `layout.js`.
 
 ### 2.3 Theming
 

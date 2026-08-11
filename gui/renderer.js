@@ -27,5 +27,10 @@ function syncSize() {
 }
 
 window.addEventListener('resize', syncSize);
-syncSize();
+
+// The shell is not running yet. Nothing is listening for its first `$ ` until
+// the onData handler above exists, so the main process waits for this call
+// before spawning -- and starts the PTY at the size we just measured.
+fitAddon.fit();
+window.pty.ready(term.cols, term.rows);
 term.focus();

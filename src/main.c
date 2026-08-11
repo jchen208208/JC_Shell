@@ -689,7 +689,7 @@ static int read_line(char *buf, int size) {
                 if (history_pos > 0) {
                     history_pos--;
                     int n = snprintf(buf, size, "%s", history_list[history_pos].command);
-                    len = (n < size) ? n : size;
+                    len = (n < size - 1) ? n : size - 1;
                     // display the command from history
                     printf("\r\x1b[K$ %.*s", len, buf); // '\r' moves the cursor to the front of the line, '\x1b[k' erases the chars from the cursor to the end of the line
                 }
@@ -739,7 +739,7 @@ int main(int argc, char *argv[]) {
         printf("$ ");
 
         // take cli input
-        char input[100];
+        char input[1024];
         if (read_line(input, sizeof(input)) < 0) {
             break;
         }

@@ -25,32 +25,41 @@ function createWindow() {
 
   win.loadFile('index.html');
 
-  const shell = pty.spawn(SHELL_PATH, [], {
-    name: 'xterm-color',
-    cols: 80,
-    rows: 24,
-    cwd: process.env.HOME,
-    env: process.env,
-  });
+  let shell = null;
 
-  // shell -> screen
-  shell.onData((data) => {
-    if (!win.isDestroyed()) win.webContents.send('pty:data', data);
-  });
+  // loadFile is async: renderer.js has not run yet, so nothing is listening for
+  // the shell's first `$ `. Spawning here would print it into the void. Wait
+  // for the page to say it is ready, and take its measured size while we are at
+  // it -- otherwise the initial resize would race the spawn instead.
+  ipcMain.once('pty:ready', (_event, { cols, rows }) => {
+    shell = pty.spawn(SHELL_PATH, [], {
+      name: 'xterm-color',
+      cols,
+      rows,
+      cwd: process.env.HOME,
+      env: process.env,
+    });
 
-  // shell exited (e.g. the user typed `exit`) -> close the window
-  shell.onExit(() => {
-    if (!win.isDestroyed()) win.close();
+    // shell -> screen
+    shell.onData((data) => {
+      if (!win.isDestroyed()) win.webContents.send('pty:data', data);
+    });
+
+    // shell exited (e.g. the user typed `exit`) -> close the window
+    shell.onExit(() => {
+      if (!win.isDestroyed()) win.close();
+    });
   });
 
   // screen -> shell
-  ipcMain.on('pty:input', (_event, data) => shell.write(data));
-  ipcMain.on('pty:resize', (_event, { cols, rows }) => shell.resize(cols, rows));
+  ipcMain.on('pty:input', (_event, data) => shell?.write(data));
+  ipcMain.on('pty:resize', (_event, { cols, rows }) => shell?.resize(cols, rows));
 
   win.on('closed', () => {
+    ipcMain.removeAllListeners('pty:ready');
     ipcMain.removeAllListeners('pty:input');
     ipcMain.removeAllListeners('pty:resize');
-    shell.kill();
+    shell?.kill();
   });
 }
 

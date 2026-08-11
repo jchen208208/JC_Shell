@@ -109,7 +109,7 @@ static char *find_spec(const char* command) {
 typedef struct {
     int number;
     pid_t pid;
-    char command[128];
+    char command[1024];
 } job;
 
 // array of background jobs
@@ -151,7 +151,7 @@ static void reap_jobs(bool show_running) {
 // struct for storing commands in history
 typedef struct {
     int order;
-    char command[128];
+    char command[1024];
 } history;
 
 static history history_list[64];
@@ -165,7 +165,7 @@ static void load_history(const char *path) {
         return;
     }
 
-    char line[128];
+    char line[1024];
     while (nhistory < 64 && fgets(line, sizeof(line), f)) {
         line[strcspn(line, "\n")] = '\0';
         if (line[0] == '\0') {
@@ -734,7 +734,7 @@ static int read_line(char *buf, int size) {
                 if (history_pos > 0 && history_pos < nhistory) {
                     history_pos++;
                     int n = snprintf(buf, size, "%s", history_list[history_pos].command);
-                    len = (n < size) ? n : size;
+                    len = (n < size - 1) ? n : size - 1;
                     printf("\r\x1b[K$ %.*s", len, buf);
                 }
             }

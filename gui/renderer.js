@@ -11,22 +11,22 @@ const term = new Terminal({
 const fitAddon = new FitAddon.FitAddon();
 term.loadAddon(fitAddon);
 term.open(document.getElementById('terminal'));
-function place(el, rect) {
-  const { scale } = LAYOUT;
-  el.style.left = `${rect.x * scale}px`;
-  el.style.top = `${rect.y * scale}px`;
-  el.style.width = `${rect.w * scale}px`;
-  el.style.height = `${rect.h * scale}px`;
+function place(el, r, sx, sy) {
+  el.style.left = `${r.x * sx}px`;
+  el.style.top = `${r.y * sy}px`;
+  el.style.width = `${r.w * sx}px`;
+  el.style.height = `${r.h * sy}px`;
 }
 function applyLayout() {
-  const { screen, scale, buttons } = LAYOUT;
+  const sx = window.innerWidth / LAYOUT.art.w;
+  const sy = window.innerHeight / LAYOUT.art.h;
   const root = document.documentElement.style;
-  root.setProperty('--screen-x', `${screen.x * scale}px`);
-  root.setProperty('--screen-y', `${screen.y * scale}px`);
-  root.setProperty('--screen-w', `${screen.w * scale}px`);
-  root.setProperty('--screen-h', `${screen.h * scale}px`);
-  place(document.getElementById('btn-fullscreen'), buttons.fullscreen);
-  place(document.getElementById('btn-close'), buttons.close);
+  root.setProperty('--screen-x', `${LAYOUT.screen.x * sx}px`);
+  root.setProperty('--screen-y', `${LAYOUT.screen.y * sy}px`);
+  root.setProperty('--screen-w', `${LAYOUT.screen.w * sx}px`);
+  root.setProperty('--screen-h', `${LAYOUT.screen.h * sy}px`);
+  place(document.getElementById('btn-fullscreen'), LAYOUT.buttons.fullscreen, sx, sy);
+  place(document.getElementById('btn-close'), LAYOUT.buttons.close, sx, sy);
 }
 function syncSize() {
   fitAddon.fit();
@@ -34,7 +34,10 @@ function syncSize() {
 }
 window.pty.onData((data) => term.write(data));
 term.onData((data) => window.pty.send(data));
-window.addEventListener('resize', syncSize);
+window.addEventListener('resize', () => {
+  applyLayout();
+  syncSize();
+});
 window.ui.onMode((mode) => {
   document.body.dataset.mode = mode;
   applyLayout();

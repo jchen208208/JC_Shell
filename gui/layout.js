@@ -1,14 +1,9 @@
 const LAYOUT = {
-  art: { w: 80, h: 64 },
-  scale: 12,
-  screen: { x: 26, y: 34, w: 28, h: 14 },
+  art: { w: 232, h: 160 },
+  screen: { x: 27, y: 43, w: 178, h: 101 },
   buttons: {
-    fullscreen: { x: 6, y: 44, w: 4, h: 3 },
-    close: { x: 69, y: 44, w: 4, h: 3 },
+    fullscreen: { x: 42, y: 24, w: 10, h: 10 },
+    close: { x: 180, y: 24, w: 10, h: 10 },
   },
-};
-LAYOUT.window = {
-  w: LAYOUT.art.w * LAYOUT.scale,
-  h: LAYOUT.art.h * LAYOUT.scale,
 };
 if (typeof module !== 'undefined') module.exports = LAYOUT;

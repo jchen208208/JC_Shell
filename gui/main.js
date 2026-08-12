@@ -1,12 +1,17 @@
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, screen } = require('electron');
 const path = require('node:path');
 const pty = require('node-pty');
 const LAYOUT = require('./layout');
 const SHELL_PATH = path.join(__dirname, '..', 'build', 'shell');
 function createWindow() {
+  const wa = screen.getPrimaryDisplay().workArea;
+  const scale = Math.max(
+    1,
+    Math.min(Math.floor(wa.width / LAYOUT.art.w), Math.floor(wa.height / LAYOUT.art.h))
+  );
   const win = new BrowserWindow({
-    width: LAYOUT.window.w,
-    height: LAYOUT.window.h,
+    width: LAYOUT.art.w * scale,
+    height: LAYOUT.art.h * scale,
     transparent: true,
     frame: false,
     hasShadow: false,

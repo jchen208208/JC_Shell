@@ -503,10 +503,38 @@ here instead.
   (-2)` and then SIGTRAP the process. Avoided; not investigated further.
 - `loadURL('data:text/html,...')` is blocked for top-level navigation.
 
-**Still to do:** the real artwork. Needs a native-resolution PNG (not upscaled)
-with real alpha around the silhouette and the screen area filled with flat
-`#FF00FF`, so a script can find the exact hole rectangle instead of it being
-eyeballed into `layout.js`.
+**The art pipeline.** `rotomdex_window_1.png` is the original as generated;
+`rotom.png` is the cleaned version the app actually loads. The original was
+1024x825 with **30,336 unique colours**, a fractional block size of
+12.8 x 12.89 px, and 13,452 semi-transparent pixels — it looked like pixel art
+but every block was full of compression noise, which `image-rendering:
+pixelated` would have magnified rather than hidden.
+
+Cleaning it is mechanical, so the generator's output quality does not matter
+much:
+
+1. Fit the pixel grid by building a per-column and per-row difference profile
+   and scoring candidate cell counts. Columns peaked at 80, rows at 64.
+2. Resample one modal colour per cell, sampling only the middle ~44% of each
+   cell so antialiased edges are ignored.
+3. Merge colours within a distance threshold into a small palette.
+
+Result: 80x64, 10 colours, 1.1 KB, down from 388 KB. Crisp at any whole-number
+scale.
+
+**Still to do — the art needs a bigger screen.** The largest unobstructed
+rectangle inside the green is only 28x14 cells: 35% of the art's width and 22%
+of its height. Measured in the running app, a 960x768 window gives **38 columns
+x 10 rows**, which is not usable. The eyes and mouth overlap the top of the
+green, costing 4 further rows.
+
+Target: a screen of about **52x30 cells on an 80x64 canvas** (65% of width, 47%
+of height), with nothing overlapping it. At scale 13 — a 1040x832 window, about
+the ceiling on a 1440x900 laptop — that gives 76x23 at font 14. A 55x31 screen
+would give exactly 80x24.
+
+Measured xterm.js cell size at font 14, Menlo: **8.84 x 16.80 px**. Use it to
+convert any proposed screen rectangle into columns and rows before drawing.
 
 ### 2.3 Theming
 

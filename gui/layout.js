@@ -1,10 +1,10 @@
 const LAYOUT = {
-  art: { w: 400, h: 320 },
-  scale: 2,
-  screen: { x: 56, y: 72, w: 288, h: 176 },
+  art: { w: 80, h: 64 },
+  scale: 12,
+  screen: { x: 26, y: 34, w: 28, h: 14 },
   buttons: {
-    fullscreen: { x: 340, y: 12, w: 20, h: 20 },
-    close: { x: 368, y: 12, w: 20, h: 20 },
+    fullscreen: { x: 6, y: 44, w: 4, h: 3 },
+    close: { x: 69, y: 44, w: 4, h: 3 },
   },
 };
 LAYOUT.window = {

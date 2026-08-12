@@ -475,14 +475,30 @@ here instead.
   the z-order trivial. `.frame` is `-webkit-app-region: drag` (the only way to
   move a frameless window) and `#terminal` is `no-drag`, or every click-drag to
   select text would move the window.
+- **Window controls are ours to draw.** `frame: false` means no red/green
+  buttons, so the page provides them: `ui:close` and `ui:toggle-fullscreen` go
+  over IPC to `win.close()` and `win.setFullScreen()`. Their hit rectangles
+  live in `layout.js` in art pixels, like everything else. Currently two
+  placeholder circles, to be replaced by something built into the Rotom art.
 
 **Measured, not assumed** (Electron 43, macOS):
 
 - `resizable: false` does **not** disable fullscreen. `isFullScreenable()` is
   still `true` and the round trip works.
-- **macOS does not hand back the window's original size after fullscreen.** An
-  800x640 window came back as 800x522. `leave-full-screen` must call
-  `setSize()` explicitly, or the art ends up at a fractional scale and blurs.
+- **A custom button must be `-webkit-app-region: no-drag`.** Anything inside the
+  drag region swallows clicks instead of firing them. Verified end to end by
+  synthesising real mouse events with `webContents.sendInputEvent` — both
+  buttons toggle fullscreen and close the window.
+- **macOS restores the window size on its own after fullscreen**, provided the
+  window fits the display. An earlier note here claimed the opposite and said
+  `leave-full-screen` had to call `setSize()`; that was wrong. The 800x640 →
+  800x522 shrink that prompted it happened only because the test display was
+  800x600 — the window was taller than the screen, so it came back clamped, and
+  `setSize()` could not have fixed that either. No `setSize()` call is needed.
+- **The window must fit inside the display's work area.** This is a real
+  constraint on `art.h * scale`: a window taller than the screen gets clamped
+  on fullscreen exit, which breaks whole-number scaling. Check the chosen art
+  size against the smallest display it has to run on.
 - `show: false` in a `BrowserWindow` made `loadFile()` fail with `ERR_FAILED
   (-2)` and then SIGTRAP the process. Avoided; not investigated further.
 - `loadURL('data:text/html,...')` is blocked for top-level navigation.

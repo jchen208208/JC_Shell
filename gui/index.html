@@ -56,12 +56,31 @@
         height: var(--screen-h);
         -webkit-app-region: no-drag;
       }
+      .btn {
+        position: absolute;
+        -webkit-app-region: no-drag;
+        padding: 0;
+        border: none;
+        border-radius: 50%;
+        cursor: pointer;
+      }
+      .btn:hover {
+        filter: brightness(1.3);
+      }
+      #btn-fullscreen {
+        background: #4a9e52;
+      }
+      #btn-close {
+        background: #d64541;
+      }
     </style>
   </head>
   <body>
     <div class="frame">
       <div class="placeholder-bezel"></div>
       <div class="placeholder-label">PLACEHOLDER FRAME</div>
+      <button id="btn-fullscreen" class="btn" title="Fullscreen"></button>
+      <button id="btn-close" class="btn" title="Close"></button>
     </div>
     <div id="terminal"></div>
     <script src="layout.js"></script>

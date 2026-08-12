@@ -7,4 +7,6 @@ contextBridge.exposeInMainWorld('pty', {
 });
 contextBridge.exposeInMainWorld('ui', {
   onMode: (callback) => ipcRenderer.on('ui:mode', (_event, mode) => callback(mode)),
+  close: () => ipcRenderer.send('ui:close'),
+  toggleFullscreen: () => ipcRenderer.send('ui:toggle-fullscreen'),
 });

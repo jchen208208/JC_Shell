@@ -23,10 +23,7 @@ function createWindow() {
     if (!win.isDestroyed()) win.webContents.send('ui:mode', mode);
   };
   win.on('enter-full-screen', () => sendMode('fullscreen'));
-  win.on('leave-full-screen', () => {
-    win.setSize(LAYOUT.window.w, LAYOUT.window.h);
-    sendMode('framed');
-  });
+  win.on('leave-full-screen', () => sendMode('framed'));
   let shell = null;
   ipcMain.once('pty:ready', (_event, { cols, rows }) => {
     shell = pty.spawn(SHELL_PATH, [], {
@@ -45,10 +42,14 @@ function createWindow() {
   });
   ipcMain.on('pty:input', (_event, data) => shell?.write(data));
   ipcMain.on('pty:resize', (_event, { cols, rows }) => shell?.resize(cols, rows));
+  ipcMain.on('ui:close', () => win.close());
+  ipcMain.on('ui:toggle-fullscreen', () => win.setFullScreen(!win.isFullScreen()));
   win.on('closed', () => {
     ipcMain.removeAllListeners('pty:ready');
     ipcMain.removeAllListeners('pty:input');
     ipcMain.removeAllListeners('pty:resize');
+    ipcMain.removeAllListeners('ui:close');
+    ipcMain.removeAllListeners('ui:toggle-fullscreen');
     shell?.kill();
   });
 }

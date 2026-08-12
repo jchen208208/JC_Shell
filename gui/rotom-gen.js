@@ -12,6 +12,7 @@ const SCREEN = { x: 46, y: 62, w: 68, h: 40 };
 const RADIUS = 6;
 const MOUTH = { x0: 68, y0: 46, x1: 91, y1: 65 };
 const HOLO_CROP = { x: 161, y: 67, w: 720, h: 464 };
+const SURROUND = { x0: 38, x1: 121 };
 const KEEP = [
   [205, 234, 237],
   [142, 198, 221],
@@ -90,7 +91,8 @@ app.whenReady().then(() => {
   const grid = cells.map((c) => (c ? snap(c) : null));
   const isEye = (c) => c && KEEP.some((k) => dist(k, c) < 60);
   const isDark = (c) => c && c[0] < 60 && c[1] < 60 && c[2] < 60;
-  const bezel = grid[(SCREEN.y + Math.floor(SCREEN.h / 2)) * NX + SCREEN.x - 1] || [1, 1, 1];
+  const reds = palette.filter((p) => p.c[0] > 140 && p.c[1] < 120 && p.c[2] < 120);
+  const bezel = (reds.sort((a, b) => b.n - a.n)[0] || palette[0]).c;
   const sx1 = SCREEN.x + SCREEN.w - 1;
   const sy1 = SCREEN.y + SCREEN.h - 1;
   const inRounded = (i, j) => {
@@ -115,9 +117,26 @@ app.whenReady().then(() => {
       }
       grid[k] = inRounded(i, j) ? NAVY : bezel;
     }
+  const nearEdge = (i, j) => {
+    for (let dj = -2; dj <= 2; dj++)
+      for (let di = -2; di <= 2; di++) {
+        const y = j + dj;
+        const x = i + di;
+        if (x < 0 || y < 0 || x >= NX || y >= NY) return true;
+        if (!grid[y * NX + x]) return true;
+      }
+    return false;
+  };
+  for (let j = SCREEN.y; j <= sy1; j++)
+    for (let i = SURROUND.x0; i <= SURROUND.x1; i++) {
+      const k = j * NX + i;
+      if (!grid[k] || preserved[k] || inRounded(i, j)) continue;
+      if (nearEdge(i, j)) continue;
+      grid[k] = bezel;
+    }
   for (let k = 0; k < grid.length; k++) {
     const c = grid[k];
-    if (c && c[1] > 170 && c[0] < 110 && c[2] < 110) grid[k] = NAVY;
+    if (c && c[1] > 170 && c[0] < 110 && c[2] < 110) grid[k] = bezel;
   }
   const out = Buffer.alloc(NX * NY * 4);
   for (let k = 0; k < NX * NY; k++) {
@@ -134,37 +153,8 @@ app.whenReady().then(() => {
     const c = grid[j * NX + i];
     return c && c[0] === NAVY[0] && c[1] === NAVY[1] && c[2] === NAVY[2] ? 1 : 0;
   };
-  let mask = new Float32Array(NX * NY);
+  const mask = new Uint8Array(NX * NY);
   for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) mask[j * NX + i] = isNavy(i, j);
-  for (let pass = 0; pass < 2; pass++) {
-    const next = new Float32Array(NX * NY);
-    for (let j = 0; j < NY; j++)
-      for (let i = 0; i < NX; i++) {
-        let s = 0;
-        let n = 0;
-        for (let dj = -1; dj <= 1; dj++)
-          for (let di = -1; di <= 1; di++) {
-            const y = j + dj;
-            const x = i + di;
-            if (x < 0 || y < 0 || x >= NX || y >= NY) continue;
-            s += mask[y * NX + x];
-            n++;
-          }
-        next[j * NX + i] = s / n;
-      }
-    mask = next;
-  }
-  for (let j = 0; j < NY; j++)
-    for (let i = 0; i < NX; i++) {
-      if (!preserved[j * NX + i]) continue;
-      for (let dj = -1; dj <= 1; dj++)
-        for (let di = -1; di <= 1; di++) {
-          const y = j + dj;
-          const x = i + di;
-          if (x < 0 || y < 0 || x >= NX || y >= NY) continue;
-          mask[y * NX + x] = 0;
-        }
-    }
   const holo = nativeImage.createFromPath(HOLO);
   const hs = holo.getSize();
   const hb = holo.getBitmap();
@@ -178,16 +168,9 @@ app.whenReady().then(() => {
       const si = (syp * hs.width + sxp) * 4;
       const cellX = SCREEN.x + (x / CW) * SCREEN.w;
       const cellY = SCREEN.y + (y / CH) * SCREEN.h;
-      const fx = Math.min(NX - 2, Math.max(0, Math.floor(cellX)));
-      const fy = Math.min(NY - 2, Math.max(0, Math.floor(cellY)));
-      const tx = cellX - fx;
-      const ty = cellY - fy;
-      const m =
-        mask[fy * NX + fx] * (1 - tx) * (1 - ty) +
-        mask[fy * NX + fx + 1] * tx * (1 - ty) +
-        mask[(fy + 1) * NX + fx] * (1 - tx) * ty +
-        mask[(fy + 1) * NX + fx + 1] * tx * ty;
-      const a = Math.round(Math.min(1, Math.max(0, (m - 0.35) / 0.4)) * 255);
+      const fx = Math.min(NX - 1, Math.max(0, Math.floor(cellX)));
+      const fy = Math.min(NY - 1, Math.max(0, Math.floor(cellY)));
+      const a = mask[fy * NX + fx] ? 255 : 0;
       const di = (y * CW + x) * 4;
       bg[di] = hb[si];
       bg[di + 1] = hb[si + 1];

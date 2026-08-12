@@ -2,8 +2,9 @@ const term = new Terminal({
   fontFamily: 'Menlo, Monaco, monospace',
   fontSize: 14,
   cursorBlink: true,
+  allowTransparency: true,
   theme: {
-    background: '#1e1e2e',
+    background: '#00000000',
     foreground: '#cdd6f4',
     cursor: '#f5e0dc',
   },
@@ -25,6 +26,10 @@ function applyLayout() {
   root.setProperty('--screen-y', `${LAYOUT.screen.y * sy}px`);
   root.setProperty('--screen-w', `${LAYOUT.screen.w * sx}px`);
   root.setProperty('--screen-h', `${LAYOUT.screen.h * sy}px`);
+  root.setProperty('--text-x', `${LAYOUT.text.x * sx}px`);
+  root.setProperty('--text-y', `${LAYOUT.text.y * sy}px`);
+  root.setProperty('--text-w', `${LAYOUT.text.w * sx}px`);
+  root.setProperty('--text-h', `${LAYOUT.text.h * sy}px`);
   place(document.getElementById('btn-fullscreen'), LAYOUT.buttons.fullscreen, sx, sy);
   place(document.getElementById('btn-close'), LAYOUT.buttons.close, sx, sy);
 }

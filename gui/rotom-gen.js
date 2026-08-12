@@ -2,12 +2,16 @@ const { app, nativeImage } = require('electron');
 const fs = require('node:fs');
 const path = require('node:path');
 const SRC = path.join(__dirname, 'rotomdex_window_1.png');
+const HOLO = path.join(__dirname, 'hologram.png');
 const DST = path.join(__dirname, 'rotom.png');
-const NX = 80;
-const NY = 64;
-const TERMBG = [30, 30, 46];
-const SCREEN = { x: 24, y: 31, w: 32, h: 20 };
-const MOUTH = { x0: 34, y0: 23, x1: 45, y1: 32 };
+const DST_BG = path.join(__dirname, 'screen-bg.png');
+const NX = 160;
+const NY = 128;
+const NAVY = [0, 17, 33];
+const SCREEN = { x: 46, y: 62, w: 68, h: 40 };
+const RADIUS = 6;
+const MOUTH = { x0: 68, y0: 46, x1: 91, y1: 65 };
+const HOLO_CROP = { x: 161, y: 67, w: 720, h: 464 };
 const KEEP = [
   [205, 234, 237],
   [142, 198, 221],
@@ -28,10 +32,10 @@ app.whenReady().then(() => {
   const cells = [];
   for (let j = 0; j < NY; j++)
     for (let i = 0; i < NX; i++) {
-      const x0 = Math.floor(i * cw + cw * 0.28);
-      const x1 = Math.ceil(i * cw + cw * 0.72);
-      const y0 = Math.floor(j * ch + ch * 0.28);
-      const y1 = Math.ceil(j * ch + ch * 0.72);
+      const x0 = Math.floor(i * cw + cw * 0.2);
+      const x1 = Math.max(x0 + 1, Math.ceil(i * cw + cw * 0.8));
+      const y0 = Math.floor(j * ch + ch * 0.2);
+      const y1 = Math.max(y0 + 1, Math.ceil(j * ch + ch * 0.8));
       const bucket = new Map();
       let opaque = 0;
       let total = 0;
@@ -71,7 +75,7 @@ app.whenReady().then(() => {
   }
   const palette = [];
   for (const { c, n } of [...freq.values()].sort((a, b) => b.n - a.n)) {
-    const hit = palette.find((p) => dist(p.c, c) < 70);
+    const hit = palette.find((p) => dist(p.c, c) < 58);
     if (hit) hit.n += n;
     else palette.push({ c: c.slice(), n });
   }
@@ -86,17 +90,34 @@ app.whenReady().then(() => {
   const grid = cells.map((c) => (c ? snap(c) : null));
   const isEye = (c) => c && KEEP.some((k) => dist(k, c) < 60);
   const isDark = (c) => c && c[0] < 60 && c[1] < 60 && c[2] < 60;
-  for (let j = SCREEN.y; j < SCREEN.y + SCREEN.h; j++)
-    for (let i = SCREEN.x; i < SCREEN.x + SCREEN.w; i++) {
+  const bezel = grid[(SCREEN.y + Math.floor(SCREEN.h / 2)) * NX + SCREEN.x - 1] || [1, 1, 1];
+  const sx1 = SCREEN.x + SCREEN.w - 1;
+  const sy1 = SCREEN.y + SCREEN.h - 1;
+  const inRounded = (i, j) => {
+    const qx = Math.min(Math.max(i, SCREEN.x + RADIUS), sx1 - RADIUS);
+    const qy = Math.min(Math.max(j, SCREEN.y + RADIUS), sy1 - RADIUS);
+    const dx = i - qx;
+    const dy = j - qy;
+    return dx * dx + dy * dy <= RADIUS * RADIUS;
+  };
+  const preserved = new Uint8Array(NX * NY);
+  for (let j = SCREEN.y; j <= sy1; j++)
+    for (let i = SCREEN.x; i <= sx1; i++) {
       const k = j * NX + i;
       const c = grid[k];
-      if (isEye(c)) continue;
-      if (isDark(c) && i >= MOUTH.x0 && i <= MOUTH.x1 && j >= MOUTH.y0 && j <= MOUTH.y1) continue;
-      grid[k] = TERMBG;
+      if (isEye(c)) {
+        preserved[k] = 1;
+        continue;
+      }
+      if (isDark(c) && i >= MOUTH.x0 && i <= MOUTH.x1 && j >= MOUTH.y0 && j <= MOUTH.y1) {
+        preserved[k] = 1;
+        continue;
+      }
+      grid[k] = inRounded(i, j) ? NAVY : bezel;
     }
   for (let k = 0; k < grid.length; k++) {
     const c = grid[k];
-    if (c && c[1] > 170 && c[0] < 110 && c[2] < 110) grid[k] = TERMBG;
+    if (c && c[1] > 170 && c[0] < 110 && c[2] < 110) grid[k] = NAVY;
   }
   const out = Buffer.alloc(NX * NY * 4);
   for (let k = 0; k < NX * NY; k++) {
@@ -108,30 +129,74 @@ app.whenReady().then(() => {
     out[k * 4 + 3] = 255;
   }
   fs.writeFileSync(DST, nativeImage.createFromBitmap(out, { width: NX, height: NY }).toPNG());
-  const isTerm = (i, j) => {
+  const isNavy = (i, j) => {
+    if (i < 0 || j < 0 || i >= NX || j >= NY) return 0;
     const c = grid[j * NX + i];
-    return c && c[0] === TERMBG[0] && c[1] === TERMBG[1] && c[2] === TERMBG[2];
+    return c && c[0] === NAVY[0] && c[1] === NAVY[1] && c[2] === NAVY[2] ? 1 : 0;
   };
-  const heights = new Array(NX).fill(0);
-  let bestRect = { area: 0 };
-  for (let j = 0; j < NY; j++) {
-    for (let i = 0; i < NX; i++) heights[i] = isTerm(i, j) ? heights[i] + 1 : 0;
-    const stack = [];
-    for (let i = 0; i <= NX; i++) {
-      const h = i === NX ? 0 : heights[i];
-      let start = i;
-      while (stack.length && stack[stack.length - 1].h >= h) {
-        const top = stack.pop();
-        const area = top.h * (i - top.i);
-        if (area > bestRect.area)
-          bestRect = { area, x: top.i, y: j - top.h + 1, w: i - top.i, h: top.h };
-        start = top.i;
+  let mask = new Float32Array(NX * NY);
+  for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++) mask[j * NX + i] = isNavy(i, j);
+  for (let pass = 0; pass < 2; pass++) {
+    const next = new Float32Array(NX * NY);
+    for (let j = 0; j < NY; j++)
+      for (let i = 0; i < NX; i++) {
+        let s = 0;
+        let n = 0;
+        for (let dj = -1; dj <= 1; dj++)
+          for (let di = -1; di <= 1; di++) {
+            const y = j + dj;
+            const x = i + di;
+            if (x < 0 || y < 0 || x >= NX || y >= NY) continue;
+            s += mask[y * NX + x];
+            n++;
+          }
+        next[j * NX + i] = s / n;
       }
-      stack.push({ i: start, h });
-    }
+    mask = next;
   }
-  console.log(`wrote rotom.png ${NX}x${NY}, palette ${palette.length}`);
-  console.log(`painted screen  x=${SCREEN.x} y=${SCREEN.y} w=${SCREEN.w} h=${SCREEN.h}`);
-  console.log(`largest text rect x=${bestRect.x} y=${bestRect.y} w=${bestRect.w} h=${bestRect.h}`);
+  for (let j = 0; j < NY; j++)
+    for (let i = 0; i < NX; i++) {
+      if (!preserved[j * NX + i]) continue;
+      for (let dj = -1; dj <= 1; dj++)
+        for (let di = -1; di <= 1; di++) {
+          const y = j + dj;
+          const x = i + di;
+          if (x < 0 || y < 0 || x >= NX || y >= NY) continue;
+          mask[y * NX + x] = 0;
+        }
+    }
+  const holo = nativeImage.createFromPath(HOLO);
+  const hs = holo.getSize();
+  const hb = holo.getBitmap();
+  const CW = HOLO_CROP.w;
+  const CH = HOLO_CROP.h;
+  const bg = Buffer.alloc(CW * CH * 4);
+  for (let y = 0; y < CH; y++)
+    for (let x = 0; x < CW; x++) {
+      const sxp = Math.min(hs.width - 1, HOLO_CROP.x + x);
+      const syp = Math.min(hs.height - 1, HOLO_CROP.y + y);
+      const si = (syp * hs.width + sxp) * 4;
+      const cellX = SCREEN.x + (x / CW) * SCREEN.w;
+      const cellY = SCREEN.y + (y / CH) * SCREEN.h;
+      const fx = Math.min(NX - 2, Math.max(0, Math.floor(cellX)));
+      const fy = Math.min(NY - 2, Math.max(0, Math.floor(cellY)));
+      const tx = cellX - fx;
+      const ty = cellY - fy;
+      const m =
+        mask[fy * NX + fx] * (1 - tx) * (1 - ty) +
+        mask[fy * NX + fx + 1] * tx * (1 - ty) +
+        mask[(fy + 1) * NX + fx] * (1 - tx) * ty +
+        mask[(fy + 1) * NX + fx + 1] * tx * ty;
+      const a = Math.round(Math.min(1, Math.max(0, (m - 0.35) / 0.4)) * 255);
+      const di = (y * CW + x) * 4;
+      bg[di] = hb[si];
+      bg[di + 1] = hb[si + 1];
+      bg[di + 2] = hb[si + 2];
+      bg[di + 3] = a;
+    }
+  fs.writeFileSync(DST_BG, nativeImage.createFromBitmap(bg, { width: CW, height: CH }).toPNG());
+  console.log(`rotom.png ${NX}x${NY}, palette ${palette.length}`);
+  console.log(`screen-bg.png ${CW}x${CH}`);
+  console.log(`screen x=${SCREEN.x} y=${SCREEN.y} w=${SCREEN.w} h=${SCREEN.h}`);
   app.quit();
 });

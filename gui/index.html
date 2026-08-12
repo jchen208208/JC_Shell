@@ -17,6 +17,10 @@
         --screen-y: 0px;
         --screen-w: 100px;
         --screen-h: 100px;
+        --text-x: 0px;
+        --text-y: 0px;
+        --text-w: 100px;
+        --text-h: 100px;
       }
       .frame {
         position: absolute;
@@ -27,13 +31,32 @@
         background-repeat: no-repeat;
         image-rendering: pixelated;
       }
-      #terminal {
+      #screen {
         position: absolute;
         left: var(--screen-x);
         top: var(--screen-y);
         width: var(--screen-w);
         height: var(--screen-h);
+        -webkit-app-region: drag;
+        background-image: url('screen-bg.png');
+        background-size: 100% 100%;
+        background-repeat: no-repeat;
+      }
+      #terminal {
+        position: absolute;
+        left: var(--text-x);
+        top: var(--text-y);
+        width: var(--text-w);
+        height: var(--text-h);
         -webkit-app-region: no-drag;
+      }
+      #terminal .xterm-viewport,
+      #terminal .xterm-screen,
+      #terminal .xterm {
+        background-color: transparent !important;
+      }
+      #terminal .xterm-viewport::-webkit-scrollbar {
+        width: 0;
       }
       .btn {
         position: absolute;
@@ -54,6 +77,7 @@
       <button id="btn-fullscreen" class="btn" title="Fullscreen"></button>
       <button id="btn-close" class="btn" title="Close"></button>
     </div>
+    <div id="screen"></div>
     <div id="terminal"></div>
     <script src="layout.js"></script>
     <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>

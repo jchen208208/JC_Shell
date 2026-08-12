@@ -4,14 +4,21 @@ const pty = require('node-pty');
 const LAYOUT = require('./layout');
 const SHELL_PATH = path.join(__dirname, '..', 'build', 'shell');
 function createWindow() {
-  const wa = screen.getPrimaryDisplay().workArea;
+  const wa = screen
+    .getAllDisplays()
+    .map((d) => d.workArea)
+    .reduce((a, b) => (b.width * b.height > a.width * a.height ? b : a));
   const scale = Math.max(
     1,
     Math.min(Math.floor(wa.width / LAYOUT.art.w), Math.floor(wa.height / LAYOUT.art.h))
   );
+  const winW = LAYOUT.art.w * scale;
+  const winH = LAYOUT.art.h * scale;
   const win = new BrowserWindow({
-    width: LAYOUT.art.w * scale,
-    height: LAYOUT.art.h * scale,
+    width: winW,
+    height: winH,
+    x: Math.round(wa.x + (wa.width - winW) / 2),
+    y: Math.round(wa.y + (wa.height - winH) / 2),
     transparent: true,
     frame: false,
     hasShadow: false,
@@ -24,6 +31,10 @@ function createWindow() {
     },
   });
   win.loadFile('index.html');
+  win.webContents.on('did-finish-load', () => {
+    win.webContents.setVisualZoomLevelLimits(1, 1);
+    win.webContents.setZoomFactor(1);
+  });
   const sendMode = (mode) => {
     if (!win.isDestroyed()) win.webContents.send('ui:mode', mode);
   };

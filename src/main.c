@@ -317,7 +317,10 @@ static void run_builtin(char **args, int nargs) {
     else if (strcmp(args[0], "cd") == 0) {
         if (!args[1]) {
             const char *path = getenv("HOME");
-            if (chdir(path) != 0) {
+            if (path == NULL) {
+                printf("cd: HOME not set\n");
+            }
+            else if (chdir(path) != 0) {
                     printf("cd: %s: No such file or directory\n", path);
                 }
         }
@@ -327,7 +330,11 @@ static void run_builtin(char **args, int nargs) {
             if (strcmp(path, "~") == 0) {
                 path = getenv("HOME");
             }
-            if (chdir(path) != 0) {
+            
+            if (path == NULL) {
+                printf("cd: HOME not set\n");
+            }
+            else if (chdir(path) != 0) {
                 printf("cd: %s: No such file or directory\n", path);
             }
         }
@@ -545,7 +552,7 @@ static int read_line(char *buf, int size) {
                     }
                 }
 
-                // auto-completion for executatble files
+                // auto-completion for executable files
                 char *path_copy = strdup(getenv("PATH"));
                 char *dir = strtok(path_copy, ":");
                 while (dir != NULL) {

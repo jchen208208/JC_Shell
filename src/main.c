@@ -318,11 +318,11 @@ static void run_builtin(char **args, int nargs) {
         if (!args[1]) {
             const char *path = getenv("HOME");
             if (path == NULL) {
-                printf("cd: HOME not set\n");
+                fprintf(stderr, "cd: HOME not set\n");
             }
             else if (chdir(path) != 0) {
-                    printf("cd: %s: No such file or directory\n", path);
-                }
+                fprintf(stderr, "cd: %s: No such file or directory\n", path);
+            }
         }
 
         else {
@@ -332,10 +332,10 @@ static void run_builtin(char **args, int nargs) {
             }
             
             if (path == NULL) {
-                printf("cd: HOME not set\n");
+                fprintf(stderr, "cd: HOME not set\n");
             }
             else if (chdir(path) != 0) {
-                printf("cd: %s: No such file or directory\n", path);
+                fprintf(stderr, "cd: %s: No such file or directory\n", path);
             }
         }
     }
@@ -372,7 +372,7 @@ static void run_builtin(char **args, int nargs) {
                 const char* spec = find_spec(args[2]);
                 // if no command specification found
                 if (spec == NULL) {
-                    printf("complete: %s: no completion specification\n", args[2]);
+                    fprintf(stderr, "complete: %s: no completion specification\n", args[2]);
                 }
 
                 else {
@@ -424,7 +424,7 @@ static void run_builtin(char **args, int nargs) {
         if (nargs >= 3 && strcmp(args[1], "-p") == 0) {
             variable *v = find_var(args[2]);
             if (v == NULL) {
-                printf("declare: %s: not found\n", args[2]);
+                fprintf(stderr, "declare: %s: not found\n", args[2]);
             }
             else {
                 printf("declare -- %s=\"%s\"\n", v->name, v->value);
@@ -437,7 +437,7 @@ static void run_builtin(char **args, int nargs) {
                 char name[64];
                 snprintf(name, sizeof(name), "%.*s", (int)(eq_index - args[1]), args[1]); // prints the chars before the '=' into name buffer
                 if (!is_valid_name(name)) {
-                    printf("declare: `%s=%s': not a valid identifier\n", name, eq_index + 1);
+                    fprintf(stderr, "declare: `%s=%s': not a valid identifier\n", name, eq_index + 1);
                 }
                 else {
                     set_var(name, eq_index + 1);
@@ -460,7 +460,7 @@ static void run_builtin(char **args, int nargs) {
                     free(full_path);
                 }
                 else {
-                    printf("%s: not found\n", command);
+                    fprintf(stderr, "%s: not found\n", command);
                 }
             }
         }
@@ -553,25 +553,28 @@ static int read_line(char *buf, int size) {
                 }
 
                 // auto-completion for executable files
-                char *path_copy = strdup(getenv("PATH"));
-                char *dir = strtok(path_copy, ":");
-                while (dir != NULL) {
-                    DIR *d = opendir(dir);
-                    if (d != NULL) {
-                        struct dirent *entry;
-                        while ((entry = readdir(d)) != NULL) {
-                            if (strncmp(entry->d_name, buf, len) == 0) {
-                                if (already_have(match, count, entry->d_name)) {
-                                    continue;
+                char *path_env = getenv("PATH");
+                if (path_env != NULL) {
+                    char *path_copy = strdup(path_env);
+                    char *dir = strtok(path_copy, ":");
+                    while (dir != NULL) {
+                        DIR *d = opendir(dir);
+                        if (d != NULL) {
+                            struct dirent *entry;
+                            while ((entry = readdir(d)) != NULL) {
+                                if (strncmp(entry->d_name, buf, len) == 0) {
+                                    if (already_have(match, count, entry->d_name)) {
+                                        continue;
+                                    }
+                                    strcpy(match[count++], (*entry).d_name);
                                 }
-                                strcpy(match[count++], (*entry).d_name);
                             }
+                            closedir(d);
                         }
-                        closedir(d);
+                        dir = strtok(NULL, ":");
                     }
-                    dir = strtok(NULL, ":");
+                    free(path_copy);
                 }
-                free(path_copy);
             }
             
             // completing second word (regular file)
@@ -1063,7 +1066,7 @@ int main(int argc, char *argv[]) {
         else {
             char *full_path = find_in_path(args[0]);
             if (full_path == NULL) {
-                printf("%s: command not found\n", args[0]);
+                fprintf(stderr, "%s: command not found\n", args[0]);
             }
             else {
                 

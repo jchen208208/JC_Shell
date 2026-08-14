@@ -207,6 +207,20 @@ static int nvars = 0;
 // stores the exit status of the command that ran just before the current loop
 static int last_status = 0;
 
+// returns the exit status code of an executable
+static int decode_status(int status) {
+    // if the program exited on its own
+    if (WIFEXITED(status)) {
+        return WEXITSTATUS(status);
+    }
+    // if it was interrupted
+    else if (WIFSIGNALED(status)) {
+        return 128 + WTERMSIG(status);  // the +128 is in order to distiguish an interruption such as kill -2 which can return an exit status of 2, with a program who caleld exit(2)
+    }
+
+    return 0;
+}
+
 static void set_var(const char *name, const char *value) {
     int i = 0;
     // finds the next free index if the variable isn't in the array, else, points at it so we overwrite the value
@@ -494,7 +508,7 @@ static int run_builtin(char **args, int nargs) {
 // runs one pipeline stage inside a child process after we fork them for the pipe
 static void run_stage(char **argv, int argc) {
     if (is_builtin(argv[0])) {
-        run_builtin(argv, argc);
+        last_status = run_builtin(argv, argc);
         exit(0);
     }
 
@@ -993,7 +1007,9 @@ int main(int argc, char *argv[]) {
             }
 
             for (int s = 0; s < nstages; s++) {
-                waitpid(pids[s], NULL, 0);
+                int status;
+                waitpid(pids[s], &status, 0);
+                last_status = decode_status(status);
             }
 
             goto free_args;
@@ -1083,7 +1099,7 @@ int main(int argc, char *argv[]) {
 
         // runs any built-in commands
         else if (is_builtin(args[0])) {
-            run_builtin(args, nargs);
+            last_status = run_builtin(args, nargs);
         }
         
         // if the first argument of input is an executable file, run that process using a child process and taking in the rest of the arguments as the child process's arguments
@@ -1170,14 +1186,7 @@ int main(int argc, char *argv[]) {
                         int status;
                         waitpid(pid, &status, 0);
                         
-                        // if the program exited on its own, we set its exit status
-                        if (WIFEXITED(status)) {
-                            last_status = WEXITSTATUS(status);
-                        }
-                        // if it was interrupted
-                        else if (WIFSIGNALED(status)) {
-                            last_status = 128 + WTERMSIG(status);  // the +128 is in order to distiguish an interruption such as kill -2 which can return an exit status of 2, with a program who caleld exit(2)
-                        }
+                        last_status = decode_status(status);
                     }
                 }
 

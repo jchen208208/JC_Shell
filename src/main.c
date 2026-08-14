@@ -14,7 +14,7 @@
 // array of built-in commands
 static const char *builtins[] = {
     "echo", "exit", "type", "pwd", "cd",
-    "complete", "jobs", "history", "declare"
+    "complete", "jobs", "history", "declare", "rotom"
 };
 
 // checks if the command is builtin for type command
@@ -323,6 +323,28 @@ static int expand_var(const char *s, char *token, int *len) {
     return chars_used;
 }
 
+// my custom "rotom" commands
+static int run_rotom(char **args, int nargs) {
+    if (!args[1]) {
+        fprintf(stderr, "rotom: usage: rotom expand|shrink\n");
+        return 1;
+    }
+
+    if (strcmp(args[1], "expand") == 0) {
+        printf("\x1b]7777;expand\x07");
+        return 0;
+    }
+    else if (strcmp(args[1], "shrink") == 0) {
+        printf("\x1b]7777;shrink\x07");
+        return 0;
+    }
+    else {
+        fprintf(stderr, "rotom: %s: unknown subcommand\n", args[1]);
+        return 1;
+    }
+}
+
+
 // runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
 static int run_builtin(char **args, int nargs) {
     // restates everything after "echo"
@@ -503,6 +525,11 @@ static int run_builtin(char **args, int nargs) {
                 }
             }
         }
+    }
+
+    // rotom block
+    else if (strcmp(args[0], "rotom") == 0) {
+        return run_rotom(args, nargs);
     }
 
     return 0;  // returns exit status 0 if built-in command ran succesfully, and 1 on failure

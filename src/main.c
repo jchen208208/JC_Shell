@@ -204,6 +204,9 @@ typedef struct {
 static variable variables[64];
 static int nvars = 0;
 
+// stores the exit status of the command that ran just before the current loop
+static int last_status = 0;
+
 static void set_var(const char *name, const char *value) {
     int i = 0;
     // finds the next free index if the variable isn't in the array, else, points at it so we overwrite the value
@@ -269,6 +272,15 @@ static int expand_var(const char *s, char *token, int *len) {
 
     else {
         if (!isalpha((unsigned char)s[0]) && s[0] != '_') {
+            // $? should return the previous exit status
+            if (s[0] == '?') {
+                char num[16];
+                snprintf(num, sizeof(num), "%d", last_status);
+                for (int i = 0; num[i] != '\0'; i++) {
+                    token[(*len)++] = num[i];
+                }    
+                return 1;
+            }
             return 0;
         }
         

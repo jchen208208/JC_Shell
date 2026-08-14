@@ -4,20 +4,22 @@ Where this project is going, and what has to happen to get there.
 
 ## Next session — start here
 
-Cleared on 2026-08-10: 2.1a, 1.11, and 1.12 (`./hello`). Remaining, in the order
-they are worth doing:
+Cleared on 2026-08-13: 1.13, 1.2 (`$?`), 1.9, and three bugs found while doing
+them — 1.15, 1.16, 1.17. Remaining, in the order they are worth doing:
 
-1. **[1.13](#113-getenvhome-can-return-null)** — `getenv("HOME")` unchecked in
-   both `cd` paths. Tiny, and it is the same crash shape as 1.11.
-2. **[1.10](#110-cursor-movement-with-left-and-right-arrows)** — left/right
+1. **[1.7](#17-my-own-custom-builtins--rotom)** — `rotom` and its subcommands. The
+   design is settled, including how `expand` / `shrink` reach the window
+   without `main.c` knowing a window exists. Read that section first.
+2. **[1.3](#13-command-separators---)** — `;`, `&&`, `||`. Unblocked now that
+   1.2 is done: `&&` is just "run the next segment if the last status was 0".
+3. **[1.10](#110-cursor-movement-with-left-and-right-arrows)** — left/right
    arrow navigation. **Not small.** Read that section before starting it.
-3. **[1.14](#114-backspace-counts-bytes-not-columns)** — backspace eats the
+4. **[1.14](#114-backspace-counts-bytes-not-columns)** — backspace eats the
    prompt on non-ASCII input. Low priority on its own, but it is the same `len`
    confusion 1.10 untangles, so do it as part of 1.10.
-
-If you would rather build features than clean up, the Phase 1 sequence starts at
-[1.1](#11-input-redirection-) (`<`) and [1.2](#12-exit-status-and-) (`$?`);
-[1.3](#13-command-separators---) depends on 1.2.
+5. **[1.1](#11-input-redirection-)** (`<`) and
+   **[1.18](#118-redirection-is-ignored-inside-a-pipeline)** — both live in the
+   redirection parser, so do them together.
 
 ## The end goal
 
@@ -52,6 +54,9 @@ Verified by running the binary, not by reading the code.
 - Output redirection: `>`, `1>`, `2>`, `>>`, `1>>`, `2>>`
 - Background jobs with `&`, plus reaping
 - Shell variables and `$VAR` expansion
+- `$?` exit status — real codes, 127 for not found, 128+signal when killed (1.2)
+- All nine builtins tab-complete, from one shared list (1.9)
+- Errors go to stderr, so `2>` and pipes behave (1.15)
 - Double-quote handling
 - Tab completion and history (`-r`, `-w`, `-a`), custom `termios` line editor
 - Backspace in the line editor (`0x7F`, erases with `\b\x1b[K`)
@@ -63,14 +68,13 @@ Verified by running the binary, not by reading the code.
 | `<` input redirection | `wc -l < f` passes `<` to `wc` as an argument |
 | `&&` and `\|\|` | Treated as literal text |
 | `;` separator | Treated as literal text |
-| `$?` exit status | Prints `$?` |
 | Globbing (`*.md`) | Prints `*.md` |
 | `~` outside `cd` | Prints `~` |
 | Completion inside quotes | Word boundary ignores quotes, so `"My Doc<TAB>` fails |
-| Completion of most builtins | Only `echo` and `exit` are offered, out of nine |
 | Left/right arrows | Ignored; the cursor is always at the end of the line |
 | Backspace on non-ASCII | Erases one column per *byte*, so it eats the `$ ` prompt |
-| `cd` with `HOME` unset | `chdir(NULL)` — segfault |
+| Redirection inside a pipeline | `a \| b > f` passes `>` to `b` as an argument |
+| `>` with no surrounding spaces | `ls >f` passes `>f` to `ls` as an argument |
 
 ---
 
@@ -84,7 +88,7 @@ CodeCrafters stage: the goal, what to do, and how to know it passed.
 **Goal:** `wc -l < README.md` reads the file as stdin.
 
 **What to do:** Redirection is already parsed in the arg loop around
-`src/main.c:938` for `>`, `2>`, `>>`. Add a `<` case that opens the file
+`src/main.c:1042` for `>`, `2>`, `>>`. Add a `<` case that opens the file
 `O_RDONLY` and `dup2`s it onto fd 0. Mirror how the existing cases save and
 restore the original fd.
 
@@ -94,21 +98,48 @@ wc -l < README.md      # a number, no "No such file" error
 cat < README.md        # file contents
 ```
 
-### 1.2 Exit status and `$?`
+### 1.2 Exit status and `$?` — DONE (2026-08-13)
 
-**Goal:** `$?` expands to the previous command's exit code.
+Built in five blocks, each verified before the next: `$?` expands at all →
+external commands set it → not-found sets 127 → builtins set it → pipelines set
+it. Splitting it that way meant every failure had exactly one possible cause.
 
-**What to do:** `waitpid` already receives `&status` at `src/main.c:1091`. Store
-`WEXITSTATUS(status)` in a global after each command, and special-case `?` in
-`expand_var()` (`src/main.c:229`) before the normal variable lookup, since `?`
-isn't a valid variable name.
+**`waitpid`'s status is not an exit code.** It packs two facts into one int:
+the exit code in the high byte, the terminating signal in the low byte. Storing
+it directly gave `false` → 256 and `exit 42` → 10752 (42 × 256). The `W*` macros
+are the accessors, and `decode_status()` now wraps them.
 
-**Passes when:**
-```sh
-true;  echo $?    # 0
-false; echo $?    # 1
-ls /nope; echo $? # non-zero
-```
+**`WIFEXITED` means "the program chose its own code", not "it succeeded".**
+`false` exits normally with 1. The other case is death by signal, where nothing
+was chosen and `WEXITSTATUS` is meaningless — reading it without checking
+`WIFEXITED` first is the classic bug here.
+
+**Signals are reported as `128 + signal`** because `$?` is one number covering
+two kinds of ending. Without the offset, "killed by SIGINT" (2) and "exited 2"
+would be indistinguishable. That puts signal deaths in 129–159: Ctrl-C is 130,
+segfault 139. Not-found is 127 for the same reason — it means "no program ever
+ran", so it cannot collide with a real code.
+
+**Builtins report by return value, not by writing the global.** `run_stage()`
+calls `run_builtin()` *inside a forked child*, which has its own copy of every
+global — writing `last_status` there dies with the child. Only the exit status
+crosses a fork. So `run_builtin` returns `int`, the parent stores it, and the
+child passes it to `exit()`.
+
+**Pipelines report the last stage only.** `false | true` is a success. Every
+stage still has to be waited on, to reap it; only the final status is kept.
+Background jobs deliberately set nothing — `cmd &` leaves `$?` at 0, reporting
+that the fork worked.
+
+**In `expand_var()`, the return value counts input characters consumed, not
+output produced.** `$?` always returns 1 — one `?` — whether it expands to `0`
+or `137`. The caller uses it to advance its scan position.
+
+Two missing-return warnings turned up during this and both were real
+(`decode_status`, then `is_builtin` in 1.9). Worth keeping warnings visible.
+
+**Verified:** `true`→0, `false`→1, `exit 42`→42, `nosuchcmd`→127, SIGKILL→137,
+Ctrl-C→130, `cd /nope`→1, `false | true`→0, `ls /nope | wc -l`→0.
 
 ### 1.3 Command separators `;`, `&&`, `||`
 
@@ -120,7 +151,7 @@ runs, then run each segment through the existing path. `&&` runs the next
 segment only on exit 0; `||` only on non-zero.
 
 Watch out: `&&` must not be confused with the existing background `&` check at
-`src/main.c:842`. Check for `&&` first.
+`src/main.c:942`. Check for `&&` first.
 
 **Passes when:**
 ```sh
@@ -134,7 +165,7 @@ false || echo fallback       # fallback
 
 **Goal:** `~` works everywhere, not just in `cd`.
 
-**What to do:** `cd` already special-cases `~` at `src/main.c:298`. Pull that
+**What to do:** `cd` already special-cases `~` at `src/main.c:363`. Pull that
 out into a general expansion applied to every token during parsing. Handle bare
 `~` and the `~/path` prefix. Leave a mid-token `~` alone.
 
@@ -173,22 +204,76 @@ groups — `setpgid` in the child, `tcsetpgrp` to hand it the terminal.
 **Passes when:** `sleep 10`, then Ctrl-C — the sleep dies, the prompt returns,
 the shell is still alive.
 
-### 1.7 My own custom builtins
+### 1.7 My own custom builtins — `rotom`
 
-**Goal:** Commands that exist only in my shell.
+**Goal:** A `rotom` command with subcommands. First two: `rotom expand` goes
+fullscreen, `rotom shrink` comes back.
 
-**What to do:** Add to `is_builtin()` (`src/main.c:15`) and `run_builtin()`
-(`src/main.c:275`). Ideas: `dex` for a themed prompt/banner, project shortcuts,
-whatever is actually useful day to day.
+**Builtin, not an external program.** The general rule is that a command only
+*needs* to be a builtin if it changes shell state — cwd, variables, history —
+and anything else can be a script on PATH. But the deciding factor here is
+**2.4 packaging**: an external `rotom` would have to be found on `PATH`, so the
+`.app` bundle would need to carry a second binary and arrange a `PATH` pointing
+at it on a machine we have never seen. A builtin ships inside `build/shell`
+already. Bundling one binary is hard enough.
 
-A command only needs to be a builtin if it changes shell state — cwd, variables,
-history. Anything else can just be a script on PATH.
+Do **1.9 first** — done — so adding `rotom` is one string in one array.
+
+**Structure:** one line in `run_builtin`'s chain dispatching to
+`run_rotom(args, nargs)`, which does its own `args[1]` dispatch and returns an
+exit status like every other builtin now does. A separate `src/rotom.c` is fine,
+but `file(GLOB_RECURSE ...)` will not see it until `cmake -B build -S .` is
+re-run (0.3s).
+
+#### How `expand` / `shrink` reach the window
+
+`main.c` must not know a window exists. So it does not call Electron — it
+**prints an escape sequence to stdout** and the terminal emulator acts on it.
+This is how real terminals do it (iTerm2's proprietary codes, xterm's
+window-title sequence), and it keeps the architecture rule intact.
+
+```
+rotom expand          writes \x1b]7777;expand\x07 to stdout
+   ↓ PTY
+xterm.js              parser.registerOscHandler(7777, ...)
+   ↓ IPC
+main.js               win.setFullScreen(true)
+```
+
+An **OSC** (Operating System Command) is `\x1b]`, a number, `;`, a payload,
+`\x07`. Pick a high private number — 0–2 are window title, 52 clipboard, 1337
+is iTerm's.
+
+**Explicit, not toggle.** `ui:toggle-fullscreen` already exists at
+`gui/main.js:62` and flips the current state — so `rotom expand` while already
+fullscreen would *shrink*. Needs a new channel calling `setFullScreen(true)` /
+`(false)`. The dot buttons keep using the toggle.
+
+**The shell stays stateless.** It never tracks whether the window is expanded;
+it cannot and should not. The GUI owns that, and already broadcasts it via
+`ui:mode`. That is why these are two commands and not one `rotom toggle`.
+
+**Exit status is always 0.** The shell writes bytes into a pipe and has no way
+to learn whether anything was listening. Under Terminal.app the sequence is
+silently swallowed — correct behaviour, not a bug to work around.
+
+**The `main.c` half is testable with no GUI:**
+
+```sh
+rotom expand | xxd     # 1b 5d 37 37 37 37 3b ... 07
+```
+
+If the bytes are right, that side is done. The xterm.js handler, the preload
+function and the `main.js` IPC are GUI plumbing.
+
+Later ideas: `dex` banner, project shortcuts. Anything that only prints text has
+none of the above complexity.
 
 ### 1.8 Quote-aware tab completion
 
 **Goal:** `echo "My Doc<TAB>` completes to `echo "My Document.txt`.
 
-**What to do:** `src/main.c:493` finds the word boundary by scanning for the
+**What to do:** `src/main.c:576` finds the word boundary by scanning for the
 last space anywhere in the line:
 
 ```c
@@ -212,22 +297,27 @@ echo "My Doc<TAB>     # completes to My Document.txt
 echo Notes<TAB>       # still works unquoted
 ```
 
-### 1.9 Completion knows all the builtins
+### 1.9 Completion knows all the builtins — DONE (2026-08-13)
 
-**Goal:** Tab-completing `cd`, `pwd`, `type` and the rest works.
+One file-scope `static const char *builtins[]` now feeds both `is_builtin()` and
+the completion scan. Adding a builtin is one string in one place, which is the
+point — the copy-the-missing-seven fix would have left the same trap for `rotom`
+to fall into.
 
-**What to do:** `src/main.c:502` hardcodes a second, shorter list:
+The completion site needed **no edit at all**. Its local
+`const char builtins[][24] = {"echo", "exit"};` was *shadowing* the new global;
+deleting that one line was the whole fix, since `sizeof(builtins)/sizeof(...)`
+then measures the global and gives nine.
 
-```c
-const char builtins[][24] = {"echo", "exit"};
-```
+Rewriting `is_builtin()` from a `||` chain to a loop introduced a missing
+`return false` — reachable on **every external command**, since that is exactly
+the case where nothing matches. It happened to work, which is worse than
+failing; the compiler warning is what caught it.
 
-Nine builtins exist in `is_builtin()` but only two are offered. The quick fix is
-to add the missing seven. The better fix is to have one list that both
-`is_builtin()` and completion read from, so the two can never drift apart again.
-
-**Passes when:** `de<TAB>` completes to `declare`, and adding a builtin in 1.7
-makes it completable without touching a second list.
+**Verified:** `decl`→`declare`, `compl`→`complete`, `jobs`, `cd`, `his`→
+`history`. Note `de`, `pw` and `com` correctly *beep* rather than complete —
+`de` also matches `/usr/bin/defaults`, `pw` matches `pwpolicy`, so the common
+prefix adds nothing. Bash behaves the same.
 
 ### 1.10 Cursor movement with left and right arrows
 
@@ -236,8 +326,8 @@ inserts at the cursor instead of at the end.
 
 **This is the biggest change to `read_line()` so far — do not start it thinking
 it is a two-line fix.** Detecting the arrows genuinely is easy: the escape block
-at `src/main.c:670` already reads the 3-byte sequences, so `[C` (right) and
-`[D` (left) are two more cases next to the existing `[A` and `[B`. Moving the
+at `src/main.c:775` already reads the 3-byte sequences, so `[C` (right) and
+`[D` (left) are two more cases next to the existing `[A` (779) and `[B` (790). Moving the
 cursor on screen is also easy — `\b` or `\x1b[D` left, `\x1b[C` right.
 
 The hard part is that **the entire line editor currently assumes you are always
@@ -251,8 +341,8 @@ at the end of the line.** `len` doubles as both "how long the line is" and
 - After any redraw, the cursor has to be put back where it belongs, since
   printing the tail leaves it at the end of the line.
 - Tab completion inserts at `len`; it will need to insert at `cursor`.
-- The history redraws at `src/main.c:721` and `732` set `len` and assume the
-  cursor lands at the end. They need to set `cursor` too.
+- The history redraws in the `[A` / `[B` blocks (from `src/main.c:779`) set
+  `len` and assume the cursor lands at the end. They need to set `cursor` too.
 
 **Decide up front whether `cursor` counts bytes or columns.** Every bug in
 [1.14](#114-backspace-counts-bytes-not-columns) comes from `len` silently
@@ -316,21 +406,28 @@ is `args[0]`, freed again by `free_args`. Returning it directly is a double free
 **Verified:** `ls`, `wc`, `./hello`, `./run.sh`, `/bin/echo` work; `./ls`, `.`,
 `..` and a real directory found on PATH all report "command not found".
 
-### 1.13 `getenv("HOME")` can return NULL
+### 1.13 `getenv("HOME")` can return NULL — DONE (2026-08-13)
 
-**Goal:** `cd` with `HOME` unset prints an error instead of crashing.
+Both `cd` paths now check before `chdir()` and print `cd: HOME not set`.
 
-**What to do:** Both `cd` paths — the bare-`cd` case added in 1.11 and the `~`
-case beside it — pass `getenv("HOME")` to `chdir()` without checking it.
-`getenv` returns NULL when the variable is not set, and `chdir(NULL)` segfaults.
-Same crash shape as 1.11, one level down.
+**There was a third site, and it was the dangerous one.** Tab completion did
+`strdup(getenv("PATH"))` with no check, so pressing Tab with `PATH` unset
+segfaulted the whole shell. `strdup(NULL)` crashes on macOS — confirmed, exit
+139. `find_in_path()` had guarded this correctly all along; the completion path
+just never copied the guard.
 
-Bash prints `cd: HOME not set` and returns non-zero.
+The first attempt guarded the wrong thing:
 
-**Passes when:**
-```sh
-env -i ./build/shell    # then type: cd     -> error message, no crash
+```c
+char *path_copy = strdup(getenv("PATH"));   // crashes here
+if (path_copy != NULL) {                    // never reached
 ```
+
+Check what `getenv` returned, then copy. Completion of builtins is left outside
+the guard, so `ec<TAB>` still works with no `PATH` — the right degradation.
+
+**Verified through a PTY:** `env -i ./build/shell`, then `cd`, `cd ~` and Tab —
+error messages, no crash.
 
 ### 1.14 Backspace counts bytes, not columns
 
@@ -356,6 +453,77 @@ is the other half of the same problem — `\b` at column 0 does not climb to the
 previous row.
 
 **Passes when:** typing `é` or an emoji and holding backspace leaves `$ ` intact.
+
+### 1.15 Errors went to stdout, not stderr — DONE (2026-08-13)
+
+Every diagnostic in the shell used `printf`; only one site used `stderr`. That
+is not cosmetic once `2>` and pipes exist: `cd /nope 2>/dev/null` still printed,
+and `cd /nope | wc -l` counted the error as **data**.
+
+Nine sites converted across `cd`, `complete`, `declare`, `type` and the
+not-found path. Results — `echo`, `pwd`, `type`, `history` output — stay on
+stdout and must remain pipeable.
+
+Consequence worth remembering: stdout is block-buffered into a pipe while
+stderr is unbuffered, so once they are on different streams the *order* can
+change under redirection. Normal shell behaviour, not a defect.
+
+### 1.16 `cd` always said "No such file or directory" — DONE (2026-08-13)
+
+The message was hardcoded, so `cd src/main.c` claimed the file did not exist.
+`chdir` sets `errno`; `strerror(errno)` is the whole fix, and it covers cases
+neither of us enumerated (`ELOOP`, `ENAMETOOLONG`).
+
+Measured on this Mac: missing path → `ENOENT` (2), a file → `ENOTDIR` (20),
+also `ENOTDIR` when a *middle* component is a file, unreadable dir → `EACCES`
+(13). Never switch on the numbers — they are not portable, and `strerror`
+already holds the table.
+
+`errno` is only meaningful **after a call has failed**, and any libc call can
+overwrite it, so read it immediately inside the failure branch.
+
+**Verified:** `cd src/main.c` → `Not a directory`, `cd /nope` →
+`No such file or directory`, `cd /var/root` → `Permission denied`.
+
+### 1.17 Tab on an empty line overflowed `match[]` — DONE (2026-08-13)
+
+Pressing Tab on an empty line segfaulted the shell.
+
+`strncmp(name, buf, 0)` compares *zero* characters, so it returns 0 — a match —
+for everything. With an empty line that meant nine builtins plus **every
+executable on PATH**, 1481 of them here, all copied into `char match[64][256]`
+by an unchecked `strcpy(match[count++], ...)`. Writing slot 64 onward walks off
+the end of a stack array.
+
+Fixed by bounding `count < 64` before every write — there are four such sites,
+and the PATH scan is the one that actually overflowed. Raising the limit would
+not have been a fix; 1481 does not fit in any sane array.
+
+Same shape as 1.11 and 1.13: a value used without first asking whether it is
+valid.
+
+**Verified under AddressSanitizer through a PTY** — empty Tab, `ec<TAB>` and
+`echo <TAB>` all clean. ASAN is the tool that finds this class; normal runs sail
+past it.
+
+### 1.18 Redirection is ignored inside a pipeline
+
+**Goal:** `ls /tmp | wc -l > out.txt` writes to the file.
+
+**Current behaviour:** `wc: >: open: No such file or directory` — `>` and the
+filename are passed to `wc` as arguments.
+
+**Why:** the pipeline branch returns at `src/main.c:977`, and all the `>`
+parsing lives at `src/main.c:1042` — *after* it. A pipeline never reaches the
+redirection code. Plain `ls /tmp > /dev/null` works; only the combination fails.
+
+**What to do:** redirection has to be parsed **per stage**, before the stages
+are launched, rather than once for the whole line. Same code and same shape as
+[1.1](#11-input-redirection-), so do the two together.
+
+Related and separate: `>` is only recognised as its own token, so `ls >f` passes
+`>f` to `ls`. Real shells accept both spellings. Fixing the tokenizer to split
+`>` off a word covers `<`, `>>` and `2>` at the same time.
 
 ---
 
@@ -579,5 +747,14 @@ to `/Applications`, double-clickable, with a proper Dock icon.
   buffers sized to match. Real shells allocate dynamically; revisit only if the
   fixed cap actually gets in the way.
 - ASAN is worth keeping in the loop for line-editor work — it caught the
-  `buf[len]` overflow that normal runs sailed straight past:
-  `gcc -std=gnu2x -fsanitize=address -g -o shell_asan src/main.c`
+  `buf[len]` overflow that normal runs sailed straight past, and confirmed the
+  1.17 fix: `cc -std=gnu2x -fsanitize=address -g -o shell_asan src/main.c`
+- Should `CMakeLists.txt` carry `-Wall -Werror`? Two real bugs in 1.2 and 1.9
+  were caught only by the default missing-return warning, and 1.10 will generate
+  more of that class. The cost is that pre-existing warnings have to be cleared
+  first.
+- Environment variables do not expand — `echo $USER` prints nothing, because
+  `find_var()` only searches the shell's own `variables[]` array. Whether the
+  shell should read the environment is a real question, not on the roadmap yet.
+- Line numbers in this file go stale as `main.c` grows. They were re-checked on
+  2026-08-13; treat anything older as approximate and grep for the code instead.

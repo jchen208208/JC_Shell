@@ -5,11 +5,26 @@ Where this project is going, and what has to happen to get there.
 ## Next session — start here
 
 Cleared on 2026-08-13: 1.13, 1.2 (`$?`), 1.9, `rotom expand`/`shrink` from 1.7,
-and three bugs found along the way — 1.15, 1.16, 1.17. Remaining, in the order
-they are worth doing:
+and three bugs found along the way — 1.15, 1.16, 1.17.
 
+Cleared on 2026-08-14: three overflow crashes found by testing the binary, not
+by reading it — 1.19, 1.20, 1.21. All three were the same shape, a fixed-size
+array with a counter nobody checked. **If another one turns up, look for that
+pattern first.** Remaining, in the order they are worth doing:
+
+0. **Split operators off words in the tokenizer** — proposed 2026-08-14, not
+   agreed yet. Right now `>` is only recognised as a standalone token, so
+   `ls >f` fails. Teaching the tokenizer to split it off a word is small, and
+   it lands `;`/`&&`/`||` without spaces for 1.3 *and* unblocks `<`, `>>`, `2>`
+   for 1.1/1.18. If it happens, it goes before 1.3. Edge case: a quoted `">"`
+   must stay literal, so the split belongs in the unquoted branch only.
 1. **[1.3](#13-command-separators---)** — `;`, `&&`, `||`. Unblocked now that
    1.2 is done: `&&` is just "run the next segment if the last status was 0".
+   Copy the shape of the pipeline split — walk `args`, break on the operator
+   token, record which operator preceded each segment. Two snags to decide up
+   front: `exit` currently `break`s straight out of the main `while` (a
+   two-level break once segments are a loop), and `goto free_args` from inside
+   a segment would skip the segments after it.
 2. **[1.10](#110-cursor-movement-with-left-and-right-arrows)** — left/right
    arrow navigation. **Not small.** Read that section before starting it.
 3. **[1.14](#114-backspace-counts-bytes-not-columns)** — backspace eats the
@@ -64,6 +79,8 @@ Verified by running the binary, not by reading the code.
 - Double-quote handling
 - Tab completion and history (`-r`, `-w`, `-a`), custom `termios` line editor
 - Backspace in the line editor (`0x7F`, erases with `\b\x1b[K`)
+- Survives its own limits — long sessions, long argument lists and long
+  variable values no longer corrupt memory (1.19, 1.20, 1.21)
 
 **Not working yet** — each of these was tested and confirmed missing:
 
@@ -79,6 +96,11 @@ Verified by running the binary, not by reading the code.
 | Backspace on non-ASCII | Erases one column per *byte*, so it eats the `$ ` prompt |
 | Redirection inside a pipeline | `a \| b > f` passes `>` to `b` as an argument |
 | `>` with no surrounding spaces | `ls >f` passes `>f` to `ls` as an argument |
+
+**Known limits, capped on purpose — not bugs:** history stops recording after
+64 commands per session (1.19); a line over 63 tokens is refused with
+`shell: too many arguments` (1.20); a variable expansion longer than 1023 chars
+is truncated silently (1.21).
 
 ---
 
@@ -592,6 +614,116 @@ are launched, rather than once for the whole line. Same code and same shape as
 Related and separate: `>` is only recognised as its own token, so `ls >f` passes
 `>f` to `ls`. Real shells accept both spellings. Fixing the tokenizer to split
 `>` off a word covers `<`, `>>` and `2>` at the same time.
+
+### 1.19 History array overflowed on the 65th command — DONE (2026-08-14)
+
+`history_list` is `history[64]`. `load_history` bounded it correctly
+(`while (nhistory < 64 && ...)`), but the write in the main loop did not check
+at all — it just indexed and incremented.
+
+The 65th command of a session wrote past the end into the globals that follow
+it in memory. Symptom was garbage `[0]   Done` job lines appearing out of
+nowhere, because the write landed in `jobs[]`, then `exit 138` — SIGBUS.
+
+Worse than "65 commands": entries loaded from `HISTFILE` count toward the same
+total. With a 64-line history file the **first** command typed was already
+corrupting memory.
+
+Fixed by guarding the write with `nhistory < 64`.
+
+Consequence accepted deliberately: history silently stops recording at 64, so
+up-arrow and the `history` builtin freeze there for the rest of the session.
+bash instead drops the oldest entry and shifts. A ring buffer is the real fix
+if this ever becomes annoying — note that `last_appended` indexes the same
+array, so shifting has to move it too or the history file writes the wrong
+lines. Not worth it yet. **No error message here on purpose** — printing one on
+every command after the 64th would be pure noise.
+
+**Verified:** 70 commands in one session → exit 0, clean under ASAN.
+
+### 1.20 Token array overflowed past 63 arguments — DONE (2026-08-14)
+
+`args` and `allocated` are both `char *[64]` on the stack, and neither write
+site checked its counter. A line with more than 64 tokens smashed the stack —
+`exit 134`, SIGABRT, stack protector.
+
+Three separate mistakes came out of fixing this, and each one is worth more
+than the fix:
+
+**The cap is 63, not 64.** After tokenizing, `args[nargs] = NULL` writes *at*
+index `nargs`. So `nargs` can never legally reach 64 — the last slot belongs to
+the terminator. Guarding at `< 64` still overflowed by one.
+
+**Guarding the terminator instead of the cap is worse than the bug.** Wrapping
+`args[nargs] = NULL` in `if (nargs < 64)` stopped the write overflow and
+created an unbounded *read*: at exactly 64 tokens no terminator was written at
+all, and `execv` walked off the array looking for one — `execv: Bad address`,
+EFAULT. ASAN does not catch this; the overread happens inside `execv`, not in
+instrumented code. Fix the cap, not the write.
+
+**`&&`-ing a condition onto an `if` rewrites what its `else` means.** The
+original was `if (in_token) {...} else { continue; }`, where `else` meant "just
+whitespace, nothing to flush" — the *common* case. Changing it to
+`if (nargs < 63 && in_token)` made that `else` fire for both "nothing to flush"
+and "cap reached", with no way to tell them apart, so every double space,
+leading space, trailing space and empty line printed `too many arguments`.
+
+Final shape is a three-way split, both conditions kept separate:
+
+| Condition | Meaning | Outcome |
+|---|---|---|
+| `nargs < 63 && in_token` | room, real token | flush it |
+| `nargs >= 63 && in_token` | no room, real token | error, bail |
+| `!in_token` | run of whitespace | `continue`, silently |
+
+Both write sites need all three — the second one, the flush after the loop,
+otherwise silently drops the *final* token.
+
+Over-cap lines now refuse loudly rather than running something else. Before the
+message, the shell glued every argument past the cap into one token
+(`x62x63x64x65...`) and ran it without comment, which is worse than crashing:
+memory-safe, and silently not the command you typed.
+
+**Verified:** 63 tokens run, 64+ print `shell: too many arguments (max 63)` and
+set `$?` to 1; 200 tokens clean under ASAN; whitespace cases all correct.
+
+### 1.21 `expand_var` wrote past the end of `token` — DONE (2026-08-14)
+
+`expand_var` copied a variable's value into `main`'s `token` buffer with no
+bound at all. Values are up to 1023 chars and `token` is 1024, so two
+expansions in one word ran off the end:
+
+```sh
+declare X=<900 A's>
+echo $X$X                # exit 139, SIGSEGV
+```
+
+Bound is **1023, not 1024** — `main` writes `token[len] = '\0'` afterwards, so
+filling through index 1023 puts the terminator one past the end.
+
+The bug that cost the most time here was `if (len < 1024)`. `len` is `int *`;
+that compares the *pointer's address* against 1024, which on a real stack is
+always false, so the copy loop never ran and **every variable expanded to
+empty** — `echo [$X]` printed `[]`. It needs `*len`, exactly like the
+`(*len)++` on the line directly below it.
+
+The compiler said so, precisely, on every build:
+
+```
+warning: ordered comparison between pointer and integer ('int *' and 'int')
+```
+
+It named the file, line, column and both types. Read the warnings before
+rerunning the binary.
+
+Known wart: `1023` is `token`'s size in `main`, hardcoded in a function that
+has no way to know it. Resize `token` and this goes silently wrong. Passing the
+size in as a parameter is the honest fix. Truncation is also still silent —
+unlike 1.20 there is no message, because the return value already means
+"characters consumed" and there is no second channel out.
+
+**Verified:** `echo $X$X` with a 900-char value → exit 0, clean under ASAN;
+`echo [$X]` → `[hello]`; 0 compiler warnings.
 
 ---
 

@@ -841,7 +841,121 @@ static int read_line(char *buf, int size) {
     return result;
 }
 
+// tokenization function (breaking input into an arguments array), returns the number of args
+static int tokenize(char *input, char *args[], char *allocated[]) {
+    char token[1024];
+    int len = 0;
+    bool in_token = false;
+    bool in_squote = false;
+    bool in_dquote = false;
+    int nargs = 0;
 
+    for (int i = 0; input[i] != '\0'; i++) {
+        char c = input[i];
+        if (in_dquote) {
+            if (c == '\"') {
+                in_dquote = false;
+            }
+            else if (c == '\\') {
+                if (input[i + 1] != '\0') {
+                    token[len++] = input[i + 1];
+                    in_token = true;
+                    i++;
+                }
+            }
+            else {
+                token[len++] = c;
+            }
+        }
+        else if (in_squote) {
+            if (c == '\'') {
+                in_squote = false;
+            }
+            else {
+                token[len++] = c;
+            }
+        }
+        else {
+            if (c == '\\') {
+                if (input[i + 1] != '\0') {
+                    token[len++] = input[i + 1];
+                    in_token = true;
+                    i++;
+                }
+            }
+            else if (c == '\'') {
+                in_squote = true;
+                in_token = true;
+            }
+            else if (c == '\"') {
+                in_dquote = true;
+                in_token = true;
+            }
+            else if (c == ' ' || c == '\t') {
+                if (nargs < 63 && in_token) {
+                    token[len] = '\0';
+                    args[nargs] = strdup(token);
+                    allocated[nargs] = args[nargs];
+                    nargs++;
+                    len = 0; // start a new token
+                    in_token = false;
+                }
+                else if (nargs >= 63 && in_token) {
+                    // too many arguments, could cause bus error
+                    fprintf(stderr, "shell: too many arguments (max 63)\n");
+                    for (int i = 0; i < nargs; i++) {
+                        free(args[i]);
+                    }
+                    return -1;
+                }
+                else {
+                    continue;  // if the whitespace is not inside a token, compress all contiguous whitespaces into one, aka skip over them
+                }
+            }
+            else if (c == '$') {
+                int chars_used = expand_var(&input[i + 1], token, &len); // writes the variable's value into the current token instead of its name
+                if (chars_used > 0) {
+                    i += chars_used; // skips past the name characters
+                    if (len > 0) {
+                        in_token = true; // so $hello{world} would be in token but ${hello}world wouldn't be
+                    }
+                }
+                
+                // if chars_used == 0, then the token is a literal
+                else {
+                    token[len++] = c;
+                    in_token = true;
+                }
+            }
+            else {
+                token[len++] = c;
+                in_token = true;
+            }
+        }
+    }
+
+    if (nargs < 63 && in_token) {
+        token[len] = '\0';
+        args[nargs] = strdup(token);
+        allocated[nargs] = args[nargs];
+        nargs++;
+    }
+    else if (nargs >= 63 && in_token) {
+        fprintf(stderr, "shell: too many arguments (max 63)\n");
+        // we have tp free the args on the heap before exiting
+        for (int i = 0; i < nargs; i++) {
+            free(args[i]);
+        }
+        return -1;
+    }
+
+    args[nargs] = NULL; // null-terminates args array
+
+    return nargs;
+}
+
+
+// REPL loop
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
 
@@ -872,103 +986,22 @@ int main(int argc, char *argv[]) {
             nhistory++;
         }
 
-        // tokenization step (breaking input into arguments array)
+        
         char *args[64];
-        int nargs = 0;
-        char token[1024];
-        int len = 0;
-        bool in_token = false;
-        bool in_squote = false;
-        bool in_dquote = false;
-
+        int nargs;
         char *allocated[64]; // kept to free args addresses after reassignment like >
-        int nalloc = 0;
+        int nalloc;
+
+        nargs = tokenize(input, args, allocated);
+        if (nargs == -1) {  // if args overflows, tokenize will return -1
+            last_status = 1;
+            continue;  // no need to free_args since everything's already been freed inside tokenize
+        }
+        nalloc = nargs;
+
         // saving the terminal fd to restore after
         int saved_stdout = -1;
         int saved_stderr = -1;
-
-        for (int i = 0; input[i] != '\0'; i++) {
-            char c = input[i];
-            if (in_dquote) {
-                if (c == '\"') {
-                    in_dquote = false;
-                }
-                else if (c == '\\') {
-                    if (input[i + 1] != '\0') {
-                        token[len++] = input[i + 1];
-                        in_token = true;
-                        i++;
-                    }
-                }
-                else {
-                    token[len++] = c;
-                }
-            }
-            else if (in_squote) {
-                if (c == '\'') {
-                    in_squote = false;
-                }
-                else {
-                    token[len++] = c;
-                }
-            }
-            else {
-                if (c == '\\') {
-                    if (input[i + 1] != '\0') {
-                        token[len++] = input[i + 1];
-                        in_token = true;
-                        i++;
-                    }
-                }
-                else if (c == '\'') {
-                    in_squote = true;
-                    in_token = true;
-                }
-                else if (c == '\"') {
-                    in_dquote = true;
-                    in_token = true;
-                }
-                else if (c == ' ' || c == '\t') {
-                    if (nargs < 63 && in_token) {
-                        token[len] = '\0';
-                        args[nargs] = strdup(token);
-                        allocated[nalloc++] = args[nargs++];
-                        len = 0; // start a new token
-                        in_token = false;
-                    }
-                    else {
-                        continue;
-                    }
-                }
-                else if (c == '$') {
-                    int chars_used = expand_var(&input[i + 1], token, &len); // writes the variable's value into the current token instead of its name
-                    if (chars_used > 0) {
-                        i += chars_used; // skips past the name characters
-                        if (len > 0) {
-                            in_token = true; // so $hello{world} would be in token but ${hello}world wouldn't be
-                        }
-                    }
-                    
-                    // if chars_used == 0, then the token is a literal
-                    else {
-                        token[len++] = c;
-                        in_token = true;
-                    }
-                }
-                else {
-                    token[len++] = c;
-                    in_token = true;
-                }
-            }
-        }
-
-        if (nargs < 63 && in_token) {
-            token[len] = '\0';
-            args[nargs] = strdup(token);
-            allocated[nalloc++] = args[nargs++];
-        }
-
-        args[nargs] = NULL; // null-terminates args array
 
 
         // a trailing & means run job in background

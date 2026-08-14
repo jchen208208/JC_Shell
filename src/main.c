@@ -281,6 +281,7 @@ static int expand_var(const char *s, char *token, int *len) {
                 }    
                 return 1;
             }
+            // else, invalide variable name
             return 0;
         }
         
@@ -306,7 +307,7 @@ static int expand_var(const char *s, char *token, int *len) {
 }
 
 // runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
-static void run_builtin(char **args, int nargs) {
+static int run_builtin(char **args, int nargs) {
     // restates everything after "echo"
     if (strcmp(args[0], "echo") == 0) {
         for (int i = 1; i < nargs; i++) {
@@ -332,9 +333,11 @@ static void run_builtin(char **args, int nargs) {
             const char *path = getenv("HOME");
             if (path == NULL) {
                 fprintf(stderr, "cd: HOME not set\n");
+                return 1;
             }
             else if (chdir(path) != 0) {
                 fprintf(stderr, "cd: %s: %s\n", path, strerror(errno));
+                return 1;
             }
         }
 
@@ -346,9 +349,11 @@ static void run_builtin(char **args, int nargs) {
             
             if (path == NULL) {
                 fprintf(stderr, "cd: HOME not set\n");
+                return 1;
             }
             else if (chdir(path) != 0) {
                 fprintf(stderr, "cd: %s: %s\n", path, strerror(errno));
+                return 1;
             }
         }
     }
@@ -386,6 +391,7 @@ static void run_builtin(char **args, int nargs) {
                 // if no command specification found
                 if (spec == NULL) {
                     fprintf(stderr, "complete: %s: no completion specification\n", args[2]);
+                    return 1;
                 }
 
                 else {
@@ -438,6 +444,7 @@ static void run_builtin(char **args, int nargs) {
             variable *v = find_var(args[2]);
             if (v == NULL) {
                 fprintf(stderr, "declare: %s: not found\n", args[2]);
+                return 1;
             }
             else {
                 printf("declare -- %s=\"%s\"\n", v->name, v->value);
@@ -451,6 +458,7 @@ static void run_builtin(char **args, int nargs) {
                 snprintf(name, sizeof(name), "%.*s", (int)(eq_index - args[1]), args[1]); // prints the chars before the '=' into name buffer
                 if (!is_valid_name(name)) {
                     fprintf(stderr, "declare: `%s=%s': not a valid identifier\n", name, eq_index + 1);
+                    return 1;
                 }
                 else {
                     set_var(name, eq_index + 1);
@@ -474,10 +482,13 @@ static void run_builtin(char **args, int nargs) {
                 }
                 else {
                     fprintf(stderr, "%s: not found\n", command);
+                    return 1;
                 }
             }
         }
     }
+
+    return 0;  // returns exit status 0 if built-in command ran succesfully, and 1 on failure
 }
 
 // runs one pipeline stage inside a child process after we fork them for the pipe
@@ -1080,7 +1091,9 @@ int main(int argc, char *argv[]) {
             char *full_path = find_in_path(args[0]);
             if (full_path == NULL) {
                 fprintf(stderr, "%s: command not found\n", args[0]);
+                last_status = 127;
             }
+
             else {
                 
                 pid_t pid = fork();
@@ -1156,6 +1169,15 @@ int main(int argc, char *argv[]) {
                         // parent process waits for the child to finish
                         int status;
                         waitpid(pid, &status, 0);
+                        
+                        // if the program exited on its own, we set its exit status
+                        if (WIFEXITED(status)) {
+                            last_status = WEXITSTATUS(status);
+                        }
+                        // if it was interrupted
+                        else if (WIFSIGNALED(status)) {
+                            last_status = 128 + WTERMSIG(status);  // the +128 is in order to distiguish an interruption such as kill -2 which can return an exit status of 2, with a program who caleld exit(2)
+                        }
                     }
                 }
 

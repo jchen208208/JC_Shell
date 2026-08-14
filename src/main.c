@@ -11,18 +11,19 @@
 #include <ctype.h>
 #include <errno.h>
 
+// array of built-in commands
+static const char *builtins[] = {
+    "echo", "exit", "type", "pwd", "cd",
+    "complete", "jobs", "history", "declare"
+};
 
 // checks if the command is builtin for type command
 static bool is_builtin(const char *command) {
-    return strcmp(command, "echo") == 0 ||
-           strcmp(command, "exit") == 0 ||
-           strcmp(command, "type") == 0 ||
-           strcmp(command, "pwd") == 0 ||
-           strcmp(command, "cd") == 0 ||
-           strcmp(command, "complete") == 0 ||
-           strcmp(command, "jobs") == 0 ||
-           strcmp(command, "history") == 0 ||
-           strcmp(command, "declare") == 0;
+    for (int i = 0; i < sizeof(builtins)/sizeof(char *); i++) {
+        if (strcmp(command, builtins[i]) == 0) {
+            return true;
+        }
+    }
 }
 
 // returns the absolute path of an executable file
@@ -578,7 +579,6 @@ static int read_line(char *buf, int size) {
             int match_start = word_start;
 
             // auto-completion for builtin commands
-            const char builtins[][24] = {"echo", "exit"};
             char match[64][256];
             int count = 0;
 

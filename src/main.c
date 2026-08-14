@@ -9,6 +9,7 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <ctype.h>
+#include <errno.h>
 
 
 // checks if the command is builtin for type command
@@ -321,7 +322,7 @@ static void run_builtin(char **args, int nargs) {
                 fprintf(stderr, "cd: HOME not set\n");
             }
             else if (chdir(path) != 0) {
-                fprintf(stderr, "cd: %s: No such file or directory\n", path);
+                fprintf(stderr, "cd: %s: %s\n", path, strerror(errno));
             }
         }
 
@@ -335,7 +336,7 @@ static void run_builtin(char **args, int nargs) {
                 fprintf(stderr, "cd: HOME not set\n");
             }
             else if (chdir(path) != 0) {
-                fprintf(stderr, "cd: %s: No such file or directory\n", path);
+                fprintf(stderr, "cd: %s: %s\n", path, strerror(errno));
             }
         }
     }

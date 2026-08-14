@@ -4,22 +4,24 @@ Where this project is going, and what has to happen to get there.
 
 ## Next session — start here
 
-Cleared on 2026-08-13: 1.13, 1.2 (`$?`), 1.9, and three bugs found while doing
-them — 1.15, 1.16, 1.17. Remaining, in the order they are worth doing:
+Cleared on 2026-08-13: 1.13, 1.2 (`$?`), 1.9, `rotom expand`/`shrink` from 1.7,
+and three bugs found along the way — 1.15, 1.16, 1.17. Remaining, in the order
+they are worth doing:
 
-1. **[1.7](#17-my-own-custom-builtins--rotom)** — `rotom` and its subcommands. The
-   design is settled, including how `expand` / `shrink` reach the window
-   without `main.c` knowing a window exists. Read that section first.
-2. **[1.3](#13-command-separators---)** — `;`, `&&`, `||`. Unblocked now that
+1. **[1.3](#13-command-separators---)** — `;`, `&&`, `||`. Unblocked now that
    1.2 is done: `&&` is just "run the next segment if the last status was 0".
-3. **[1.10](#110-cursor-movement-with-left-and-right-arrows)** — left/right
+2. **[1.10](#110-cursor-movement-with-left-and-right-arrows)** — left/right
    arrow navigation. **Not small.** Read that section before starting it.
-4. **[1.14](#114-backspace-counts-bytes-not-columns)** — backspace eats the
+3. **[1.14](#114-backspace-counts-bytes-not-columns)** — backspace eats the
    prompt on non-ASCII input. Low priority on its own, but it is the same `len`
    confusion 1.10 untangles, so do it as part of 1.10.
-5. **[1.1](#11-input-redirection-)** (`<`) and
+4. **[1.1](#11-input-redirection-)** (`<`) and
    **[1.18](#118-redirection-is-ignored-inside-a-pipeline)** — both live in the
    redirection parser, so do them together.
+
+More `rotom` subcommands can slot in any time —
+[1.7](#17-my-own-custom-builtins--rotom) explains the pattern, and adding one
+needs no new plumbing on either side.
 
 ## The end goal
 
@@ -57,6 +59,8 @@ Verified by running the binary, not by reading the code.
 - `$?` exit status — real codes, 127 for not found, 128+signal when killed (1.2)
 - All nine builtins tab-complete, from one shared list (1.9)
 - Errors go to stderr, so `2>` and pipes behave (1.15)
+- `rotom expand` / `rotom shrink` — fullscreen the Dex window from the shell,
+  over an OSC escape, with no GUI code in `main.c` (1.7)
 - Double-quote handling
 - Tab completion and history (`-r`, `-w`, `-a`), custom `termios` line editor
 - Backspace in the line editor (`0x7F`, erases with `\b\x1b[K`)
@@ -206,8 +210,9 @@ the shell is still alive.
 
 ### 1.7 My own custom builtins — `rotom`
 
-**Goal:** A `rotom` command with subcommands. First two: `rotom expand` goes
-fullscreen, `rotom shrink` comes back.
+**Goal:** A `rotom` command with subcommands. First two — `rotom expand` goes
+fullscreen, `rotom shrink` comes back — are built and working end to end in the
+app. Further subcommands are open-ended; the plumbing below is reusable.
 
 **Builtin, not an external program.** The general rule is that a command only
 *needs* to be a builtin if it changes shell state — cwd, variables, history —
@@ -265,6 +270,69 @@ rotom expand | xxd     # 1b 5d 37 37 37 37 3b ... 07
 
 If the bytes are right, that side is done. The xterm.js handler, the preload
 function and the `main.js` IPC are GUI plumbing.
+
+#### What was built
+
+`run_rotom(char **args, int nargs)` sits above `run_builtin` in `main.c`, which
+dispatches one line to it. `"rotom"` was added to the shared builtins array —
+one string, and `type rotom` plus tab completion came free. That is 1.9 paying
+for itself immediately.
+
+Behaviour: `expand` / `shrink` print their sequence and return 0; bare `rotom`
+prints usage and returns 1; anything else names the offending word and returns
+1. Both messages go to stderr.
+
+**The unknown-subcommand branch is not politeness, it is the missing `return`.**
+Without it `rotom expnad` falls off the end of a non-void function — the third
+time that mistake appeared in one session. A typo would silently "succeed" with
+a garbage `$?`.
+
+**The escape takes no newline; the error messages do.** The sequence is bytes
+for a parser, where a stray `\n` scrolls the screen and breaks the byte count.
+The errors are lines for a person. Easy to get backwards.
+
+No `fflush` is needed — `setbuf(stdout, NULL)` at `src/main.c:817` makes stdout
+unbuffered, which is also why the prompt shows without a newline.
+
+**Verified:** `rotom expand | xxd` → `1b5d 3737 3737 3b65 7870 616e 6407`,
+exactly 14 bytes, same for `shrink`; `$?` of 0 / 1 / 1 across the three paths;
+messages on stderr; and the real thing — typed in the app, the window expands
+and shrinks.
+
+#### The GUI side, as built
+
+Eleven lines across three files:
+
+- `renderer.js` — `term.parser.registerOscHandler(7777, ...)`, dispatching on
+  the payload and returning `true` to consume the sequence.
+- `preload.js` — `setFullscreen(on)` added to the `ui` bridge.
+- `main.js` — `ipcMain.on('ui:fullscreen', ...)` → `win.setFullScreen(!!on)`,
+  plus the matching `removeAllListeners` on close, like every other channel.
+
+**Half the sequence is a standard, half is invented.** `ESC ]` … `BEL` is OSC,
+defined in ECMA-48 and understood by every terminal: "this is a message for the
+terminal program, not text to draw." The number `7777` and the words
+`expand`/`shrink` are ours. Only a few numbers are claimed by convention — 0–2
+window title, 52 clipboard, 1337 iTerm2 — so an unused high one is free to take,
+much like a port. A terminal that does not know it discards the whole sequence,
+which is why `rotom expand` does nothing visible under Terminal.app instead of
+printing junk.
+
+**Nothing in C calls anything.** `term.write()` feeds a state machine: it sees
+`\x1b`, then `]`, collects the number until `;`, collects the payload until
+BEL, then looks 7777 up in a table of registered handlers and calls ours. The
+shell writes to stdout blind, exactly like `printf("hi")`.
+
+**Why not scan for the sequence in `main.js`**, where the PTY data already
+arrives, and skip the renderer round trip? Because PTY reads land in arbitrary
+chunks — `\x1b]7777;exp` can arrive in one `onData` and `and\x07` in the next.
+A hand-rolled `indexOf` passes every test you would think to write and then
+fails under load. The xterm.js parser is a state machine across `write()` calls
+and already handles it, and it strips what it consumes so nothing renders.
+
+**Adding subcommands needs no new plumbing.** The payload is a plain string, so
+`rotom theme dark` later is one more `printf` in C and one more branch in the
+handler — no new OSC number, no new IPC channel.
 
 Later ideas: `dex` banner, project shortcuts. Anything that only prints text has
 none of the above complexity.

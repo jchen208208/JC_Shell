@@ -60,12 +60,14 @@ function createWindow() {
   ipcMain.on('pty:resize', (_event, { cols, rows }) => shell?.resize(cols, rows));
   ipcMain.on('ui:close', () => win.close());
   ipcMain.on('ui:toggle-fullscreen', () => win.setFullScreen(!win.isFullScreen()));
+  ipcMain.on('ui:fullscreen', (_event, on) => win.setFullScreen(!!on));
   win.on('closed', () => {
     ipcMain.removeAllListeners('pty:ready');
     ipcMain.removeAllListeners('pty:input');
     ipcMain.removeAllListeners('pty:resize');
     ipcMain.removeAllListeners('ui:close');
     ipcMain.removeAllListeners('ui:toggle-fullscreen');
+    ipcMain.removeAllListeners('ui:fullscreen');
     shell?.kill();
   });
 }

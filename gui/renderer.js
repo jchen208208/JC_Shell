@@ -39,6 +39,11 @@ function syncSize() {
 }
 window.pty.onData((data) => term.write(data));
 term.onData((data) => window.pty.send(data));
+term.parser.registerOscHandler(7777, (payload) => {
+  if (payload === 'expand') window.ui.setFullscreen(true);
+  else if (payload === 'shrink') window.ui.setFullscreen(false);
+  return true;
+});
 window.addEventListener('resize', () => {
   applyLayout();
   syncSize();

@@ -24,6 +24,8 @@ static bool is_builtin(const char *command) {
             return true;
         }
     }
+
+    return false;
 }
 
 // returns the absolute path of an executable file
@@ -586,7 +588,9 @@ static int read_line(char *buf, int size) {
             if (word_start == 0) {
                 for (int i = 0; i < (sizeof(builtins) / sizeof(builtins[0])); i++) {
                     if (strncmp(builtins[i], buf, len) == 0) {
-                        strcpy(match[count++], builtins[i]);
+                        if (count < 64) {
+                            strcpy(match[count++], builtins[i]);
+                        }
                     }
                 }
 
@@ -604,7 +608,9 @@ static int read_line(char *buf, int size) {
                                     if (already_have(match, count, entry->d_name)) {
                                         continue;
                                     }
-                                    strcpy(match[count++], (*entry).d_name);
+                                    if (count < 64) {
+                                        strcpy(match[count++], (*entry).d_name);
+                                    }
                                 }
                             }
                             closedir(d);
@@ -646,8 +652,10 @@ static int read_line(char *buf, int size) {
                         while (count < 64 && fgets(line, sizeof(line), fp) != NULL) {
                             line[strcspn(line, "\n")] = '\0';
                             if (line[0] != '\0') {
-                                sprintf(match[count], "%s", line);
-                                count++;
+                                if (count < 64) {
+                                    snprintf(match[count], sizeof(match[count]), "%s", line);
+                                    count++;
+                                }
                             }
                         }
                         pclose(fp);
@@ -686,7 +694,9 @@ static int read_line(char *buf, int size) {
                                 if (stat(full_path, &st) == 0 && S_ISDIR(st.st_mode)) {
                                     strcat(match[count], "/");
                                 }
-                                count++;
+                                if (count < 64) {
+                                    count++;
+                                }
                             }
                         }
                         closedir(d);

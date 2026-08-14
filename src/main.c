@@ -315,7 +315,9 @@ static int expand_var(const char *s, char *token, int *len) {
     if (v != NULL) {
         // if the variable value isn't set, nothing is appended and token is still on index 0 for the next word
         for (int k = 0; v->value[k] != '\0'; k++) {
-            token[(*len)++] = v->value[k]; // copies th variable value into the token buffer in main
+            if ((*len) < 1023) {
+                token[(*len)++] = v->value[k]; // copies th variable value into the token buffer in main
+            }
         }
     }
 
@@ -864,9 +866,11 @@ int main(int argc, char *argv[]) {
         }
 
         // saves input (command) to history
-        history_list[nhistory].order = nhistory + 1;
-        snprintf(history_list[nhistory].command, sizeof(history_list[nhistory].command), "%s", input);
-        nhistory++;
+        if (nhistory < 64) {
+            history_list[nhistory].order = nhistory + 1;
+            snprintf(history_list[nhistory].command, sizeof(history_list[nhistory].command), "%s", input);
+            nhistory++;
+        }
 
         // tokenization step (breaking input into arguments array)
         char *args[64];
@@ -925,7 +929,7 @@ int main(int argc, char *argv[]) {
                     in_token = true;
                 }
                 else if (c == ' ' || c == '\t') {
-                    if (in_token) {
+                    if (nargs < 63 && in_token) {
                         token[len] = '\0';
                         args[nargs] = strdup(token);
                         allocated[nalloc++] = args[nargs++];
@@ -958,13 +962,14 @@ int main(int argc, char *argv[]) {
             }
         }
 
-        if (in_token) {
+        if (nargs < 63 && in_token) {
             token[len] = '\0';
             args[nargs] = strdup(token);
             allocated[nalloc++] = args[nargs++];
         }
 
         args[nargs] = NULL; // null-terminates args array
+
 
         // a trailing & means run job in background
         bool background_job = false;

@@ -10,21 +10,22 @@ and three bugs found along the way — 1.15, 1.16, 1.17.
 Cleared on 2026-08-14: three overflow crashes found by testing the binary, not
 by reading it — 1.19, 1.20, 1.21. All three were the same shape, a fixed-size
 array with a counter nobody checked. **If another one turns up, look for that
-pattern first.** Remaining, in the order they are worth doing:
+pattern first.** Then 1.22 — the tokenizer moved into its own function and
+learned to split operators off words, which is the groundwork 1.3, 1.1 and 1.18
+were all waiting on.
 
-0. **Split operators off words in the tokenizer** — proposed 2026-08-14, not
-   agreed yet. Right now `>` is only recognised as a standalone token, so
-   `ls >f` fails. Teaching the tokenizer to split it off a word is small, and
-   it lands `;`/`&&`/`||` without spaces for 1.3 *and* unblocks `<`, `>>`, `2>`
-   for 1.1/1.18. If it happens, it goes before 1.3. Edge case: a quoted `">"`
-   must stay literal, so the split belongs in the unquoted branch only.
-1. **[1.3](#13-command-separators---)** — `;`, `&&`, `||`. Unblocked now that
-   1.2 is done: `&&` is just "run the next segment if the last status was 0".
-   Copy the shape of the pipeline split — walk `args`, break on the operator
-   token, record which operator preceded each segment. Two snags to decide up
-   front: `exit` currently `break`s straight out of the main `while` (a
-   two-level break once segments are a loop), and `goto free_args` from inside
-   a segment would skip the segments after it.
+Remaining, in the order they are worth doing:
+
+1. **[1.3](#13-command-separators---)** — `;`, `&&`, `||`. Everything it needs
+   is now in place: 1.2 gives it `last_status`, and 1.22 makes the tokenizer
+   emit the operators as their own tokens whether or not you type spaces.
+   What is left is the execution half — walk `args`, break on the operator
+   token, record which operator preceded each segment, and use `last_status`
+   to decide whether to run the next one. Copy the shape of the pipeline split.
+   Two snags to decide up front: `exit` currently `break`s straight out of the
+   main `while` (a two-level break once segments are a loop), and
+   `continue`/`goto free_args` from inside a segment would skip the segments
+   after it.
 2. **[1.10](#110-cursor-movement-with-left-and-right-arrows)** — left/right
    arrow navigation. **Not small.** Read that section before starting it.
 3. **[1.14](#114-backspace-counts-bytes-not-columns)** — backspace eats the
@@ -81,21 +82,23 @@ Verified by running the binary, not by reading the code.
 - Backspace in the line editor (`0x7F`, erases with `\b\x1b[K`)
 - Survives its own limits — long sessions, long argument lists and long
   variable values no longer corrupt memory (1.19, 1.20, 1.21)
+- Operators no longer need spaces around them — `ls|wc -l`, `ls>f`, `a>>f`,
+  `2>f`, `2>>f` all tokenize correctly (1.22)
+- Tokenizing lives in its own `tokenize()` function, not inline in `main` (1.22)
 
 **Not working yet** — each of these was tested and confirmed missing:
 
 | Feature | Current behaviour |
 |---|---|
-| `<` input redirection | `wc -l < f` passes `<` to `wc` as an argument |
-| `&&` and `\|\|` | Treated as literal text |
-| `;` separator | Treated as literal text |
+| `<` input redirection | Tokenized correctly, but nothing acts on it — `wc -l < f` still passes `<` to `wc` |
+| `&&` and `\|\|` | Tokenized correctly, but nothing executes them yet |
+| `;` separator | Tokenized correctly, but nothing executes them yet |
 | Globbing (`*.md`) | Prints `*.md` |
 | `~` outside `cd` | Prints `~` |
 | Completion inside quotes | Word boundary ignores quotes, so `"My Doc<TAB>` fails |
 | Left/right arrows | Ignored; the cursor is always at the end of the line |
 | Backspace on non-ASCII | Erases one column per *byte*, so it eats the `$ ` prompt |
 | Redirection inside a pipeline | `a \| b > f` passes `>` to `b` as an argument |
-| `>` with no surrounding spaces | `ls >f` passes `>f` to `ls` as an argument |
 
 **Known limits, capped on purpose — not bugs:** history stops recording after
 64 commands per session (1.19); a line over 63 tokens is refused with
@@ -113,10 +116,12 @@ CodeCrafters stage: the goal, what to do, and how to know it passed.
 
 **Goal:** `wc -l < README.md` reads the file as stdin.
 
-**What to do:** Redirection is already parsed in the arg loop around
-`src/main.c:1042` for `>`, `2>`, `>>`. Add a `<` case that opens the file
-`O_RDONLY` and `dup2`s it onto fd 0. Mirror how the existing cases save and
-restore the original fd.
+**What to do:** Half of this is already done — 1.22 made the tokenizer emit
+`<` as its own token, so `wc -l <f` and `wc -l < f` both produce the same
+args. What is missing is the acting-on-it half: the arg loop that parses `>`,
+`2>` and `>>` has no `<` case. Add one that opens the file `O_RDONLY` and
+`dup2`s it onto fd 0, mirroring how the existing cases save and restore the
+original fd.
 
 **Passes when:**
 ```sh
@@ -611,9 +616,10 @@ redirection code. Plain `ls /tmp > /dev/null` works; only the combination fails.
 are launched, rather than once for the whole line. Same code and same shape as
 [1.1](#11-input-redirection-), so do the two together.
 
-Related and separate: `>` is only recognised as its own token, so `ls >f` passes
-`>f` to `ls`. Real shells accept both spellings. Fixing the tokenizer to split
-`>` off a word covers `<`, `>>` and `2>` at the same time.
+The tokenizer half of this is **done** — see 1.22. `>` used to be recognised
+only as a standalone token, so `ls >f` passed `>f` to `ls`; it now splits off a
+word correctly, which covered `<`, `>>`, `2>` and `2>>` at the same time. What
+remains here is purely the per-stage redirection plumbing.
 
 ### 1.19 History array overflowed on the 65th command — DONE (2026-08-14)
 
@@ -724,6 +730,95 @@ unlike 1.20 there is no message, because the return value already means
 
 **Verified:** `echo $X$X` with a 900-char value → exit 0, clean under ASAN;
 `echo [$X]` → `[hello]`; 0 compiler warnings.
+
+### 1.22 Tokenizer: its own function, and operators split off words — DONE (2026-08-14)
+
+Two changes, deliberately done as two steps with the tests green in between:
+extract the tokenizer out of `main`, *then* teach it about operators. Doing
+both at once would have made any failure ambiguous.
+
+**Step 1 — `tokenize()`.** The tokenizing loop lived inline in `main`'s `while`
+body. Pulled out to:
+
+```c
+static int tokenize(char *input, char *args[], char *allocated[]);
+```
+
+returning `nargs`, or `-1` on overflow. It reads smaller than the variable
+count suggests, because most of the state never escapes: `token`, `len`,
+`in_token`, `in_squote`, `in_dquote` are all internal. Only `args`, `allocated`
+and the count are wanted afterwards.
+
+**C cannot return an array.** `args` declared inside the function would die on
+return, so the caller declares it and passes it in for the function to fill.
+`nargs` comes back as the return value, which doubles as the error channel —
+`-1` is a value a count cannot legitimately be.
+
+**A function that fails must leave nothing behind.** `goto free_args` cannot
+cross a function boundary, so overflow became `return -1` — but by then some
+tokens were already `strdup`'d, and `main`'s free loop runs with `nalloc` still
+0. `tokenize` now frees its own allocations before returning `-1`. Ownership
+transfers to the caller **only on success**; on failure the callee cleans up,
+because the caller does not know there is anything to clean.
+
+Verified with `leaks`: 200 over-cap lines leak the same 32 bytes as a single
+`echo hi`, and that 32 is pre-existing — confirmed by stashing and rebuilding.
+
+`nalloc` also turned out to be dead inside the tokenizer: it incremented in
+lockstep with `nargs`, always equal, never returned. One counter indexes both
+arrays. `allocated` itself stays — it exists because the redirection parser
+overwrites `args[i]` with `NULL`, and without a shadow copy those heap
+addresses would be unreachable.
+
+**Step 2 — operators are their own tokens.** The tokenizer split on whitespace
+and nothing else, so an operator was only a token if you happened to type
+spaces around it. `ls|wc -l` was one word handed to `execv`; pipes were fully
+implemented and still failed. Same for `ls>f`, `a;b`, `x&&y`.
+
+The working shape is **decide the operator first, push once**:
+
+```
+1. fd prefix?    c == '>' && len == 1 && (token[0] == '1' || token[0] == '2')
+                 -> the digit joins op; clear len and in_token, it is consumed
+2. op += c
+3. two-char?     (c is | > &) && input[i + 1] == c   -> op += c; i++
+4. terminate op
+5. flush the pending token, if any
+6. push op
+```
+
+`2>>` walks all four steps, `>>` skips 1, `2>` skips 3. One path, every case.
+
+Three attempts failed before this shape, each for a reason worth keeping:
+
+- **`strcmp(token, "1")` reads an unterminated buffer.** `token` only gets its
+  `'\0'` at flush time; mid-loop it is `len` live chars followed by stale bytes
+  from the *previous* token. After `ls /nope`, `token` held `2ope`, so the
+  compare never matched and the whole fd branch was dead. Use `len == 1`.
+- **Nesting the fd check inside the sub-branches puts it too late.** With the
+  two-char test first, `2>>` matched `>>`, flushed `2` on its own and pushed
+  `>>` before the fd check was ever reached. The digit changes *what operator
+  you are building*, so it cannot be an afterthought inside one of the arms.
+- **Ordering the cap check as `nargs < 62` is a guess.** This branch pushes two
+  tokens when a token is pending and one when it is not. `nargs + need > 63`
+  with `need = in_token ? 2 : 1` says exactly that.
+
+Quoting still wins, because the split lives only in the unquoted branch:
+`echo "a > b"` → `a > b`, `echo a\>b` → `a>b`.
+
+Not done, and deliberately: `echo 12>f` gives `12` as an argument plus a stdout
+redirect. bash reads that as an fd-12 redirect. The rule here is *lone digit*,
+which is all `1>` and `2>` need.
+
+**Regression this caused, and caught:** splitting `>` off words initially broke
+`2>` and `1>`, which had worked for weeks — the digit was flushed as its own
+token, so `2>` never formed and `strcmp(args[i], "2>")` never matched. Found by
+running the old binary from `git stash`, not by reading the diff. When a change
+touches a parser, re-run the things that *used* to work, not just the new ones.
+
+**Verified:** `ls|wc -l` → 7; `ls>f`, `a>>f`, `2>f`, `2>>f`, `1>f` all
+redirect; spaced forms unchanged; `echo 2` and `echo 12` unaffected; 0 compiler
+warnings; ASAN clean including an 80-operator line; `leaks` at baseline.
 
 ---
 

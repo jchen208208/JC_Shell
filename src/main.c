@@ -325,51 +325,7 @@ static int expand_var(const char *s, char *token, int *len) {
     return chars_used;
 }
 
-// tells rotom whether to emit the previous command exit status, don't emit on the first loop
-static bool emit_status = false;
-static bool emit_mood = false;  // if off, then don't emit anything
-
-// my custom "rotom" commands
-static int run_rotom(char **args, int nargs) {
-    if (!args[1]) {
-        fprintf(stderr, "rotom: usage: rotom expand|shrink\n");
-        return 1;
-    }
-
-    if (strcmp(args[1], "expand") == 0) {
-        printf("\x1b]7777;expand\x07");
-        return 0;
-    }
-    else if (strcmp(args[1], "shrink") == 0) {
-        printf("\x1b]7777;shrink\x07");
-        return 0;
-    }
-    else if (strcmp(args[1], "mood") == 0) {
-        if (args[2]) {
-            if (strcmp(args[2], "on") == 0) {
-                emit_mood = true;
-            }
-            else if (strcmp(args[2], "off") == 0) {
-                emit_mood = false;
-            }
-            else {
-                fprintf(stderr, "rotom mood: usage: rotom mood on|off\n");
-                return 1;
-            }
-            return 0;
-        }
-        else {
-            fprintf(stderr, "rotom mood: usage: rotom mood on|off\n");
-            return 1;
-        }
-    }
-
-    else {
-        fprintf(stderr, "rotom: %s: unknown subcommand\n", args[1]);
-        return 1;
-    }
-}
-
+static int run_rotom(char **args, int nargs);  // function prototype
 
 // runs any built-in commands. this is a refactor since the pipe feature should work for built-in commands as well
 static int run_builtin(char **args, int nargs) {
@@ -1022,6 +978,98 @@ static int tokenize(char *input, char *args[], char *allocated[]) {
     args[nargs] = NULL; // null-terminates args array
 
     return nargs;
+}
+
+// used for the 'rotom convo' command
+static int ask_ollama(const char *prompt) {
+    FILE *f = fopen("/tmp/rotom_req.json", "w");
+    if (f == NULL) {
+        perror("/tmp/rotom_req.json");
+        return 1;
+    }
+    fprintf(f, "{\"model\":\"qwen2.5-coder:3b\",\"prompt\":\"%s\",\"stream\":false}", prompt);
+    fclose(f);
+
+    FILE *json = popen("curl -s -m 120 -d @/tmp/rotom_req.json http://localhost:11434/api/generate", "r");
+    if (json == NULL) {
+        perror("rotom convo: curl");
+        return 1;
+    }
+
+    char buf[1024];
+    while (fgets(buf, sizeof(buf), json) != NULL) {
+        printf("%s", buf);
+    }
+    
+    pclose(json);
+    return 0;
+}
+
+// tells rotom whether to emit the previous command exit status, don't emit on the first loop
+static bool emit_status = false;
+static bool emit_mood = false;  // if off, then don't emit anything
+
+// my custom "rotom" commands
+static int run_rotom(char **args, int nargs) {
+    if (!args[1]) {
+        fprintf(stderr, "rotom: usage: rotom expand|shrink\n");
+        return 1;
+    }
+
+    if (strcmp(args[1], "expand") == 0) {
+        printf("\x1b]7777;expand\x07");
+        return 0;
+    }
+    else if (strcmp(args[1], "shrink") == 0) {
+        printf("\x1b]7777;shrink\x07");
+        return 0;
+    }
+    else if (strcmp(args[1], "mood") == 0) {
+        if (args[2]) {
+            if (strcmp(args[2], "on") == 0) {
+                emit_mood = true;
+            }
+            else if (strcmp(args[2], "off") == 0) {
+                emit_mood = false;
+            }
+            else {
+                fprintf(stderr, "rotom mood: usage: rotom mood on|off\n");
+                return 1;
+            }
+            return 0;
+        }
+        else {
+            fprintf(stderr, "rotom mood: usage: rotom mood on|off\n");
+            return 1;
+        }
+    }
+
+    else if (strcmp(args[1], "convo") == 0) {
+        char line[1024];
+        printf("rotom> Hi! What can I help you with today?\n");
+        
+        while (true) {
+            printf("> ");
+            if (read_line(line, sizeof(line)) < 0) {
+                return 1;
+            }
+            if (strcmp(line, "bye") == 0) {
+                printf("rotom> Bye!\n");
+                return 0;
+            }
+            if (line[0] == '\0') {
+                continue;
+            }
+            else {
+                ask_ollama(line);
+            }
+        }
+    }
+
+    else {
+        fprintf(stderr, "rotom: %s: unknown subcommand\n", args[1]);
+        return 1;
+    }
 }
 
 

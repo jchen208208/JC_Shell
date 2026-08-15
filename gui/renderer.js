@@ -37,11 +37,24 @@ function syncSize() {
   fitAddon.fit();
   window.pty.resize(term.cols, term.rows);
 }
+const flashEl = document.getElementById('flash');
+const FLASH_OK = '#1fdd4e';
+const FLASH_ERR = '#ff1f2e';
+let statusFlash = null;
+function pulse(ok) {
+  if (statusFlash) statusFlash.cancel();
+  flashEl.style.background = ok ? FLASH_OK : FLASH_ERR;
+  statusFlash = flashEl.animate([{ opacity: 0 }, { opacity: 1, offset: 0.18 }, { opacity: 0 }], {
+    duration: 500,
+    easing: 'ease-out',
+  });
+}
 window.pty.onData((data) => term.write(data));
 term.onData((data) => window.pty.send(data));
 term.parser.registerOscHandler(7777, (payload) => {
   if (payload === 'expand') window.ui.setFullscreen(true);
   else if (payload === 'shrink') window.ui.setFullscreen(false);
+  else if (payload.startsWith('status;')) pulse(payload.slice(7) === '0');
   return true;
 });
 window.addEventListener('resize', () => {

@@ -344,9 +344,18 @@ static int run_rotom(char **args, int nargs) {
         printf("\x1b]7777;shrink\x07");
         return 0;
     }
-    else if (nargs >= 2 && strcmp(args[1], "mood") == 0) {
+    else if (strcmp(args[1], "mood") == 0) {
         if (args[2]) {
-            emit_mood = strcmp(args[2], "on") == 0 ? true : false;
+            if (strcmp(args[2], "on") == 0) {
+                emit_mood = true;
+            }
+            else if (strcmp(args[2], "off") == 0) {
+                emit_mood = false;
+            }
+            else {
+                fprintf(stderr, "rotom mood: usage: rotom mood on|off\n");
+                return 1;
+            }
             return 0;
         }
         else {

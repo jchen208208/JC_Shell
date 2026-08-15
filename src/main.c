@@ -325,6 +325,10 @@ static int expand_var(const char *s, char *token, int *len) {
     return chars_used;
 }
 
+// tells rotom whether to emit the previous command exit status, don't emit on the first loop
+static bool emit_status = false;
+static bool emit_mood = false;  // if off, then don't emit anything
+
 // my custom "rotom" commands
 static int run_rotom(char **args, int nargs) {
     if (!args[1]) {
@@ -340,6 +344,17 @@ static int run_rotom(char **args, int nargs) {
         printf("\x1b]7777;shrink\x07");
         return 0;
     }
+    else if (nargs >= 2 && strcmp(args[1], "mood") == 0) {
+        if (args[2]) {
+            emit_mood = strcmp(args[2], "on") == 0 ? true : false;
+            return 0;
+        }
+        else {
+            fprintf(stderr, "rotom mood: usage: rotom mood on|off\n");
+            return 1;
+        }
+    }
+
     else {
         fprintf(stderr, "rotom: %s: unknown subcommand\n", args[1]);
         return 1;
@@ -1017,6 +1032,11 @@ int main(int argc, char *argv[]) {
         // reaps jobs before each new prompt
         reap_jobs(false); // never shows running jobs
 
+        if (emit_status && emit_mood) {
+            printf("\x1b]7777;status;%d\x07", last_status);
+        }
+        emit_status = false;
+
         printf("$ ");
 
         // take cli input
@@ -1041,9 +1061,11 @@ int main(int argc, char *argv[]) {
         nargs = tokenize(input, args, allocated);
         if (nargs == -1) {  // if args overflows, tokenize will return -1
             last_status = 1;
+            emit_status = true;
             continue;  // no need to free_args since everything's already been freed inside tokenize
         }
         nalloc = nargs;
+        emit_status = (nargs > 0);
 
         // saving the terminal fd to restore after
         int saved_stdout = -1;

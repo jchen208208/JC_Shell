@@ -12,7 +12,8 @@ by reading it — 1.19, 1.20, 1.21. All three were the same shape, a fixed-size
 array with a counter nobody checked. **If another one turns up, look for that
 pattern first.** Then 1.22 — the tokenizer moved into its own function and
 learned to split operators off words, which is the groundwork 1.3, 1.1 and 1.18
-were all waiting on.
+were all waiting on. Last, 1.23 — `rotom mood`, the hologram flashing green or
+red on `$?`, shell and GUI both done.
 
 Remaining, in the order they are worth doing:
 
@@ -35,7 +36,14 @@ Remaining, in the order they are worth doing:
    **[1.18](#118-redirection-is-ignored-inside-a-pipeline)** — both live in the
    redirection parser, so do them together.
 
-More `rotom` subcommands can slot in any time —
+Two `rotom` subcommands are written up and not started:
+**[1.24](#124-rotom-exit--close-the-window-from-the-shell)** (`rotom exit`,
+small, but read the note about losing `HISTFILE`) and
+**[1.25](#125-rotom-conversation--talk-to-a-local-model)** (`rotom conversation`
+against a local Ollama model — the big one, and the first thing here that is a
+*mode* rather than a one-shot command).
+
+Further `rotom` subcommands can slot in any time —
 [1.7](#17-my-own-custom-builtins--rotom) explains the pattern, and adding one
 needs no new plumbing on either side.
 
@@ -84,6 +92,8 @@ Verified by running the binary, not by reading the code.
   variable values no longer corrupt memory (1.19, 1.20, 1.21)
 - Operators no longer need spaces around them — `ls|wc -l`, `ls>f`, `a>>f`,
   `2>f`, `2>>f` all tokenize correctly (1.22)
+- `rotom mood on|off` — the hologram flashes green on `$? == 0`, red otherwise,
+  over the same OSC channel as `expand`/`shrink` (1.23)
 - Tokenizing lives in its own `tokenize()` function, not inline in `main` (1.22)
 
 **Not working yet** — each of these was tested and confirmed missing:
@@ -819,6 +829,172 @@ touches a parser, re-run the things that *used* to work, not just the new ones.
 **Verified:** `ls|wc -l` → 7; `ls>f`, `a>>f`, `2>f`, `2>>f`, `1>f` all
 redirect; spaced forms unchanged; `echo 2` and `echo 12` unaffected; 0 compiler
 warnings; ASAN clean including an 80-operator line; `leaks` at baseline.
+
+### 1.23 `rotom mood` — the Dex reacts to `$?` — DONE (2026-08-14)
+
+The shell emits its exit status after every command line; the hologram flashes
+green on 0 and red on anything else. `rotom mood on|off` gates it, default off.
+
+**No stock terminal can do this**, because no stock terminal knows what your
+shell's exit status was. It is the clearest thing built so far that justifies
+this being two programs.
+
+**`last_status` is written in seven places** — `run_stage` (543), tokenize
+overflow (1073), the pipeline `waitpid` loop (1133), builtin (1223), not-found
+(1231), external `waitpid` (1310). Emitting at each would be six copies, would
+fire once *per pipeline stage* instead of once per line, and line 543 runs
+**in a forked child**, where `last_status` is a copy that dies with the process
+and anything printed goes into the *pipe*, not the terminal.
+
+So it emits in exactly one place: the top of the `while` loop, before
+`printf("$ ")` (1044). That reports the previous line's status as the new prompt
+is drawn, which is also where a real shell colours its prompt. One site covers
+all seven, pipelines included — by then the per-stage loop has finished and
+`last_status` holds the last stage's code, which is what bash reports too.
+
+**Suppression is one line, and placement decides whether it works.** The
+obvious spot — after the empty-line check — is wrong, because the pipeline
+branch `goto`s away at 1136, *before* that check. Setting
+`emit_status = (nargs > 0)` right after `tokenize` succeeds (1077) is early
+enough for pipelines and still false for an empty or whitespace-only line.
+Declaring `emit_status` **outside** the loop is what suppresses the first
+prompt: it starts false, so the first iteration emits nothing.
+
+The overflow path `continue`s at 1074 before that assignment, so it needed its
+own `emit_status = true` next to `last_status = 1` — otherwise a failed line
+printed an error and flashed nothing while `false` flashed red.
+
+**Two `strcmp` inversions in one line**, both caught by testing rather than
+reading. `strcmp` returns **0 on match**, so a bare `strcmp(...)` in an `if` is
+true when the strings *differ*. `strcmp(args[1], "mood")` made the branch
+unreachable, and `strcmp(args[2], "on") ? true : false` would have made
+`rotom mood off` turn the glow **on**. Same family as the missing `return`
+1.7 already records — that one showed up again here too.
+
+#### The GUI half, and two dead ends worth remembering
+
+Payload is `status;<code>`, so the handler uses `startsWith` rather than the
+exact match `expand`/`shrink` use. **Duration lives in the GUI, not in C** — if
+`main.c` sent a flash length it would be making a rendering decision.
+
+**Dead end 1: `filter: hue-rotate()`.** Computed against the real hologram
+palette, blue `(62,123,185)` → green `(36,142,75)`, red `(195,94,80)`. Visibly
+still blue-ish and muddy, because `hue-rotate` is a *matrix approximation*, not
+a true hue rotation, and the pale hologram tones `(205,234,237)` are nearly
+desaturated so rotating them barely moves anything.
+
+Replaced with a `#flash` overlay using **`mix-blend-mode: color`**, which takes
+hue and saturation from the overlay and **luminance from the artwork** — the
+hologram keeps every bit of its shading and becomes unambiguously green or red:
+`(0,181,45)` and `(255,48,62)`. `isolation: isolate` on `#screen` keeps the
+blend from reaching the Dex frame behind it. Colour is now two constants,
+`FLASH_OK` / `FLASH_ERR`, and whatever hex you pick is the hue you actually get.
+
+**Dead end 2: the flash covered Rotom's eyes.** `mix-blend-mode` needs a
+backdrop to blend *with*; over fully transparent pixels there is nothing to mix
+and it paints the source colour flat. `rotom-gen.js:180` writes
+`bg[di + 3] = mask[...] ? 255 : 0`, so `screen-bg.png` is opaque only on the
+screen interior — the eyes and mouth are **alpha 0**. The full-rect overlay
+therefore painted solid red over them.
+
+Fixed with `-webkit-mask-image: url('screen-bg.png')`, clipping the flash to
+that PNG's own alpha. **Not** a second PNG and not hand-drawn borders: the mask
+*is* the hologram's alpha, so it cannot drift, and it follows automatically if
+`rotom-gen.js` ever regenerates the art. A hand-made copy would fall out of
+alignment the first time the art changed.
+
+Animation is `element.animate()` rather than a CSS class — no
+remove/reflow/re-add hack to restart it, and `statusFlash.cancel()` makes rapid
+commands restart cleanly instead of queueing.
+
+**Verified:** `[0,1,0]` for `mood on; false; true`; `[0]` for
+`mood on; off; false` — off actually stops it; `[]` by default; empty lines
+suppressed; no emit on the first prompt; pipelines report the last stage;
+not-found → 127; overflow → 1; `$?` 0/1/1 across the `rotom mood` paths.
+
+### 1.24 `rotom exit` — close the window from the shell
+
+**Goal:** `rotom exit` closes the Dex window. A stand-in until the custom
+buttons are built.
+
+**What to do:** one more `printf` in `run_rotom` and one more branch in the OSC
+handler — no new plumbing, exactly as 1.7 promised. The GUI end already exists:
+`window.ui.close()` is wired through `preload.js:10` to
+`main.js:61` (`ipcMain.on('ui:close', ...)`) and is what the close button
+already calls.
+
+**The thing to decide:** `rotom exit` closes the *window*, but the shell process
+is a child of that window — `main.js:71` does `shell?.kill()` on close. So the
+shell dies without ever running its own exit path. Compare with `exit`, which
+breaks the loop and saves history to `HISTFILE`. If `rotom exit` skips that,
+**the session's history is lost**.
+
+So it probably should not be one message. Either the shell writes history and
+*then* emits the sequence, or `rotom exit` is really "tell the GUI to close,
+then fall into the normal `exit` path." Worth working out before writing it,
+because the bug is silent — you would only notice the missing history later.
+
+**Passes when:** `rotom exit` closes the window, and `HISTFILE` contains the
+commands from that session.
+
+### 1.25 `rotom conversation` — talk to a local model
+
+**Goal:** `rotom conversation` prints `hi, what can i help you with today?`, and
+from then on what you type is sent to a local Ollama model instead of being run
+as a command. The reply is printed. Some word gets you back to the shell.
+
+**Yes, it is free.** Ollama runs entirely on this machine — no API key, no
+per-token cost, works with the network off. The costs are disk (~2GB for a 3B
+model), RAM while it is loaded, and latency on the first token.
+
+**This is a *mode*, not a subcommand, and that is the whole difficulty.** Every
+builtin so far runs once and returns. This one changes what the REPL does with
+*subsequent* lines. Two shapes:
+
+- a flag at file scope that `main` checks before tokenizing — the line goes to
+  the model instead of the parser
+- a second read loop inside `run_rotom` that owns input until the user leaves
+
+The second keeps `main` untouched but has to think about history, `read_line`
+and the `termios` editor, which are all currently owned by the outer loop.
+Decide this first; everything else follows from it.
+
+**It does not break the architecture rule.** `main.c` still reads stdin and
+writes stdout. Talking to `localhost:11434` is not GUI code — no window, no
+rendering. Worth stating out loud because it is the one hard rule in the
+project.
+
+**Three real problems, in the order they will bite:**
+
+1. **Getting the request out.** `main.c` has no HTTP client. Easiest by far is
+   `popen()` on `curl` — no new dependency, and "the shell runs an external
+   program" is on-theme. Linking libcurl means a `CMakeLists.txt` change.
+   Hand-writing HTTP over a TCP socket to `localhost:11434` teaches the most
+   and costs the most.
+2. **Escaping the prompt into JSON.** The user's text goes inside a JSON string.
+   A quote, a backslash or a newline breaks the request. This is the same class
+   of bug as an OSC payload containing `\x07` — untrusted text landing in a
+   format with delimiters. Do not skip it; it fails on the first apostrophe.
+3. **Getting the reply out of JSON.** Parsing JSON in C is the actual work.
+   Send `"stream": false` so the reply is one object instead of a stream of
+   them — that alone removes most of the difficulty. Then either scan for
+   `"response":"` (breaks on escaped quotes inside the reply, and it *will*
+   contain them), pipe through `jq`, or use a small JSON library.
+
+**Also decide:** how to leave the mode when 1.6 signal handling does not exist
+yet, so Ctrl-C is not available. A word like `bye` is the cheap answer. And
+what `$?` should be after a reply — 0 always, or non-zero when Ollama is not
+running, which is the failure people will actually hit.
+
+**Passes when:**
+```sh
+rotom conversation
+# hi, what can i help you with today?
+what is a pipe?
+# ...a real answer from the local model...
+bye
+# back at the $ prompt
+```
 
 ---
 

@@ -927,6 +927,52 @@ static int tokenize(char *input, char *args[], char *allocated[]) {
                     in_token = true;
                 }
             }
+            else if (c == '|' || c == '>' || c == '&' || c == ';' || c == '<') {
+                char op[4];
+                int oplen = 0;
+                if (c == '>' && len == 1 && (token[0] == '1' || token[0] == '2')) {
+                    op[oplen++] = token[0];
+                    // consumes the token as a part of the operator
+                    len = 0;
+                    in_token = false;
+                }
+
+                op[oplen++] = c;
+
+                if ((c == '|' || c == '>' || c == '&') && input[i + 1] == c) {
+                    op[oplen++] = c;
+                    i++;  // skips over the second character
+                }
+
+                op[oplen] = '\0';  // completes the operator
+
+                // the previosu token is alongside the operator if the operator was found while inside a token
+                int new_args = in_token ? 2 : 1;
+                if (nargs + new_args > 63) {
+                    fprintf(stderr, "shell: too many arguments (max 63)\n");
+                    for (int k = 0; k < nargs; k++) {
+                        free(args[k]);
+                    }
+                    return -1;
+                }
+
+                if (in_token) {
+                    // adds the previous token
+                    token[len] = '\0';
+                    args[nargs] = strdup(token);
+                    allocated[nargs] = args[nargs];
+                    nargs++;
+                }
+
+                // adds the operator
+                args[nargs] = strdup(op);
+                allocated[nargs] = args[nargs];
+                nargs++;
+
+                // start a new word
+                len = 0;
+                in_token = false;
+            }
             else {
                 token[len++] = c;
                 in_token = true;

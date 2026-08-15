@@ -980,6 +980,26 @@ static int tokenize(char *input, char *args[], char *allocated[]) {
     return nargs;
 }
 
+
+// helps format the prompt
+static void create_json_string(FILE *f, const char *s) {
+    for (int i = 0; s[i] != '\0'; i++) {
+        unsigned char c = s[i];
+        if (c == '"') {
+            fputs("\\\"", f);
+        }
+        else if (c == '\\') {
+            fputs("\\\\", f);
+        }
+        else if (c < 0x20) {
+            fprintf(f, "\\u%04x", c);
+        }
+        else {
+            fputc(c, f);
+        }
+    }
+}
+
 // used for the 'rotom convo' command
 static int ask_ollama(const char *prompt) {
     FILE *f = fopen("/tmp/rotom_req.json", "w");

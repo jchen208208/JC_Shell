@@ -15,6 +15,11 @@ learned to split operators off words, which is the groundwork 1.3, 1.1 and 1.18
 were all waiting on. Last, 1.23 — `rotom mood`, the hologram flashing green or
 red on `$?`, shell and GUI both done.
 
+Cleared on 2026-08-15: 1.25 — `rotom convo`, the whole Ollama round trip, built in
+five stages with the tests green between each. Multi-turn memory came free at the
+end by replaying Ollama's own `context` array. 1.24 was **dropped, not built** —
+see that section; `exit` already does the entire job.
+
 Remaining, in the order they are worth doing:
 
 1. **[1.3](#13-command-separators---)** — `;`, `&&`, `||`. Everything it needs
@@ -36,12 +41,8 @@ Remaining, in the order they are worth doing:
    **[1.18](#118-redirection-is-ignored-inside-a-pipeline)** — both live in the
    redirection parser, so do them together.
 
-Two `rotom` subcommands are written up and not started:
-**[1.24](#124-rotom-exit--close-the-window-from-the-shell)** (`rotom exit`,
-small, but read the note about losing `HISTFILE`) and
-**[1.25](#125-rotom-conversation--talk-to-a-local-model)** (`rotom conversation`
-against a local Ollama model — the big one, and the first thing here that is a
-*mode* rather than a one-shot command).
+Both of the `rotom` subcommands that were written up are now settled: 1.25 is
+built, and 1.24 is closed as unnecessary.
 
 Further `rotom` subcommands can slot in any time —
 [1.7](#17-my-own-custom-builtins--rotom) explains the pattern, and adding one
@@ -94,6 +95,8 @@ Verified by running the binary, not by reading the code.
   `2>f`, `2>>f` all tokenize correctly (1.22)
 - `rotom mood on|off` — the hologram flashes green on `$? == 0`, red otherwise,
   over the same OSC channel as `expand`/`shrink` (1.23)
+- `rotom convo` — a conversation mode that sends each line to a local Ollama
+  model instead of the parser, with multi-turn memory; `bye` leaves (1.25)
 - Tokenizing lives in its own `tokenize()` function, not inline in `main` (1.22)
 
 **Not working yet** — each of these was tested and confirmed missing:
@@ -912,30 +915,37 @@ commands restart cleanly instead of queueing.
 suppressed; no emit on the first prompt; pipelines report the last stage;
 not-found → 127; overflow → 1; `$?` 0/1/1 across the `rotom mood` paths.
 
-### 1.24 `rotom exit` — close the window from the shell
+### 1.24 `rotom exit` — DROPPED (2026-08-15)
 
-**Goal:** `rotom exit` closes the Dex window. A stand-in until the custom
-buttons are built.
+**Not built, because `exit` already does all of it.** The premise written here
+was backwards. It assumed the shell would tell the GUI to close, the GUI would
+kill the shell, and `HISTFILE` would be lost. The dependency runs the other
+way: `gui/main.js:55` has `shell.onExit(() => win.close())`, so the *shell
+exiting* is what closes the window.
 
-**What to do:** one more `printf` in `run_rotom` and one more branch in the OSC
-handler — no new plumbing, exactly as 1.7 promised. The GUI end already exists:
-`window.ui.close()` is wired through `preload.js:10` to
-`main.js:61` (`ipcMain.on('ui:close', ...)`) and is what the close button
-already calls.
+Verified end to end with the real node-pty and Electron, driving a shell over a
+PTY: typing `exit` gives `shell.onExit {"exitCode":0}` → `win.close()` →
+`closed` → `window-all-closed` → the app quits. The history save at the bottom
+of `main` runs normally on the way out, so there was never anything to lose.
 
-**The thing to decide:** `rotom exit` closes the *window*, but the shell process
-is a child of that window — `main.js:71` does `shell?.kill()` on close. So the
-shell dies without ever running its own exit path. Compare with `exit`, which
-breaks the loop and saves history to `HISTFILE`. If `rotom exit` skips that,
-**the session's history is lost**.
+That makes `rotom exit` a synonym for `exit` with no behaviour of its own, and
+the close dot button at `renderer.js:69` already covers the GUI case.
 
-So it probably should not be one message. Either the shell writes history and
-*then* emits the sequence, or `rotom exit` is really "tell the GUI to close,
-then fall into the normal `exit` path." Worth working out before writing it,
-because the bug is silent — you would only notice the missing history later.
+**Worth keeping in mind if it ever comes back.** `run_rotom` returns an `int`
+status and has no way to break `main`'s `while` — that is exactly why `exit` is
+special-cased before the builtin dispatch instead of living in `run_builtin`.
+Any future builtin that has to stop the REPL needs either that same check
+widened or a file-scope `should_exit` flag, and the flag dies with the child in
+a pipeline, the way `last_status` does in 1.23.
 
-**Passes when:** `rotom exit` closes the window, and `HISTFILE` contains the
-commands from that session.
+The version that would earn its place is `rotom bye` — a farewell flash on the
+Dex, *then* exit. The delay has to live in the GUI handler, since the window
+closes the moment the shell exits; a `sleep` in C would not help.
+
+**Found while testing this:** `exit 42` exits the shell with **0**, not 42.
+`main` breaks out of the loop and returns 0, and nothing reads `args[1]`. The
+"verified" line in 1.2 was measuring `$?` inside the shell, not the process's
+own status. Not fixed; recorded here.
 
 ### 1.25 `rotom conversation` — talk to a local model
 

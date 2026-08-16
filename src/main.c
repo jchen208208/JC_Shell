@@ -1053,7 +1053,7 @@ static bool json_string_value(const char *raw, const char *key, char *output, in
 }
 
 // used for the 'rotom convo' command
-static int ask_ollama(const char *prompt) {
+static int ask_ollama(const char *prompt, char *context, int ctxsize) {
     FILE *f = fopen("/tmp/rotom_req.json", "w");
     if (f == NULL) {
         perror("/tmp/rotom_req.json");
@@ -1063,7 +1063,12 @@ static int ask_ollama(const char *prompt) {
     // prints the ollama request dict into the json file
     fprintf(f, "{\"model\":\"qwen2.5-coder:3b\",\"prompt\":\"");
     create_json_string(f, prompt);  // makes sure the prompt is formatted correctly
-    fprintf(f, "\",\"stream\":false}");
+    fprintf(f, "\",\"stream\":false");
+    if (context[0] != '\0') {
+        fprintf(f, ",%s", context);
+    }
+    fprintf(f, "}");
+
     fclose(f);
 
     FILE *json = popen("curl -s -m 120 -d @/tmp/rotom_req.json http://localhost:11434/api/generate", "r");
@@ -1081,6 +1086,17 @@ static int ask_ollama(const char *prompt) {
     char response[65536];
     if (json_string_value(raw, "\"response\":\"", response, sizeof(response))) {
         printf("rotom> %s\n", response);
+        const char *ctx = strstr(raw, "\"context\":[");
+        if (ctx != NULL) {
+            const char *end = strchr(ctx, ']');
+            if (end != NULL) {
+                int len = end - ctx + 1;  // the length of the "context":[...] element in the ollama response dict
+                if (len < ctxsize) {
+                    memcpy(context, ctx, len);
+                    context[len] = '\0';
+                }
+            }
+        }  
     }
     else if (json_string_value(raw, "\"error\":\"", response, sizeof(response))) {
         fprintf(stderr, "rotom: %s\n", response);
@@ -1134,6 +1150,8 @@ static int run_rotom(char **args, int nargs) {
 
     else if (strcmp(args[1], "convo") == 0) {
         char line[1024];
+        char context[65536] = "";
+
         printf("rotom> Hi! What can I help you with today?\n");
         
         while (true) {
@@ -1149,14 +1167,15 @@ static int run_rotom(char **args, int nargs) {
                 continue;
             }
             else {
-                int status = ask_ollama(line);
+                int status = ask_ollama(line, context, sizeof(context));
                 if (status == 7) {
                     fprintf(stderr, "can't reach ollama\n");
+                    return 0;
                 }
                 else if (status == 127) {
                     fprintf(stderr, "curl not found\n");
+                    return 0;
                 }
-                return 0;
             }
         }
     }

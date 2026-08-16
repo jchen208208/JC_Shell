@@ -15,10 +15,10 @@ learned to split operators off words, which is the groundwork 1.3, 1.1 and 1.18
 were all waiting on. Last, 1.23 — `rotom mood`, the hologram flashing green or
 red on `$?`, shell and GUI both done.
 
-Cleared on 2026-08-15: 1.25 — `rotom convo`, the whole Ollama round trip, built in
-five stages with the tests green between each. Multi-turn memory came free at the
-end by replaying Ollama's own `context` array. 1.24 was **dropped, not built** —
-see that section; `exit` already does the entire job.
+Cleared on 2026-08-15: 1.25 — `rotom convo`, the whole Ollama round trip, built
+in five stages with the tests green between each. Multi-turn memory came free at
+the end by replaying Ollama's own `context` array. 1.24 was **dropped, not
+built** — see that section; `exit` already does the entire job.
 
 Remaining, in the order they are worth doing:
 
@@ -947,11 +947,169 @@ closes the moment the shell exits; a `sleep` in C would not help.
 "verified" line in 1.2 was measuring `$?` inside the shell, not the process's
 own status. Not fixed; recorded here.
 
-### 1.25 `rotom conversation` — talk to a local model
+### 1.25 `rotom convo` — talk to a local model — DONE (2026-08-15)
 
-**Goal:** `rotom conversation` prints `hi, what can i help you with today?`, and
-from then on what you type is sent to a local Ollama model instead of being run
-as a command. The reply is printed. Some word gets you back to the shell.
+`rotom convo` greets, then every line goes to a local Ollama model instead of
+the parser. `bye` leaves. Built in five stages with the binary tested between
+each, then multi-turn memory added on top.
+
+**The mode is a second read loop inside `run_rotom` (`main.c:1151`), not a flag
+in `main`.** `main`'s loop does things that are actively wrong for chat input —
+history recording, `tokenize`, redirection parsing, PATH lookup — and a loop
+that calls `read_line` itself skips all of them for free. `main` did not change
+at all. The cost is the opposite of the outer loop's: chat lines are not
+recorded in history, and `read_line`'s Tab completion still completes filenames
+inside the mode, which is odd but harmless.
+
+That reuse forced one structural change. `run_rotom` sat above `read_line`, so
+it moved below it and `main.c:328` now carries the file's **first forward
+declaration** — needed because `run_builtin` calls `run_rotom` from above.
+
+`read_line` turned out to need nothing: it NUL-terminates, and the Enter case
+breaks *before* storing the byte, so the `\n` never lands in the buffer and
+`strcmp(line, "bye")` compares against exactly what was typed.
+
+#### Transport: `popen` + a temp file, and why
+
+`ask_ollama` (`main.c:1056`) writes the request body to
+`/tmp/rotom_req.json`, then `popen`s
+
+```
+curl -s -m 120 -d @/tmp/rotom_req.json http://localhost:11434/api/generate
+```
+
+**`popen` gives exactly one pipe direction.** `"r"` is needed to read the
+reply, which leaves no way to write the request. So the body has to reach curl
+another way — the command line, or a file.
+
+**The file is what keeps the shell out of it.** `popen` runs its argument
+through `/bin/sh`, so an inline `-d '...'` would put the user's sentence
+through a shell parser. With the file, only our own filename crosses that
+boundary. Verified: `hi; touch /tmp/pwned_test` created no file, and the body
+on disk held the text verbatim.
+
+**A prediction made during design was wrong and worth recording.** Apostrophes
+were called out as the first thing that would break. They never did — `what's a
+pipe` worked from the first attempt, because an apostrophe is legal inside a
+JSON string and never reaches `sh`. The file design had already solved it a
+stage earlier than expected.
+
+`-s` matters (curl's progress meter would otherwise land in the terminal) and
+`-m 120` matters more: with no signal handling yet (1.6), a wedged Ollama would
+hang the shell with no way out.
+
+#### Escaping in: three ways it broke, all reproduced
+
+`create_json_string` (`main.c:985`) writes the prompt a character at a time
+into the open `FILE *` — `"` → `\"`, `\` → `\\`, anything under `0x20` →
+`\u00xx`, everything else straight through. Writing to the stream directly
+avoids an intermediate buffer that would have to be **twice** the input size,
+since 1023 quotes become 2046 characters — the 1.21 shape.
+
+| Input | Ollama's error |
+|---|---|
+| `say "hi" back` | `invalid character 'h' after object key:value pair` |
+| `what is \d in regex` | `invalid character 'd' in string escape code` |
+| Ctrl-A, then text | `invalid character '\x01' in string literal` |
+
+**The third was not predicted.** `read_line`'s final store has no `isprint`
+check, so any control byte that is not Tab, Enter, backspace or Escape lands
+straight in the buffer and then straight in the JSON.
+
+**`char` is signed here, so the `< 0x20` test must run on an `unsigned char`.**
+Measured on `"café"`: the two bytes of `é` read as **-61 and -87**, both of
+which are less than `0x20`, so every non-ASCII byte would have been mangled
+into a `\u` escape.
+
+#### Parsing out: the marker, the escapes, and the chunk boundary
+
+**Accumulate the whole response before searching it.** `fgets` returns
+arbitrary chunks, so `"response":"` can arrive split as `"resp` + `onse":"` and
+no per-chunk search would ever find it. Also worth knowing: this response has
+no newlines in it — the `\n`s inside the reply are the two characters `\` and
+`n` — so `fgets` returns 1023-byte slices, not lines.
+
+**The reply genuinely contains `\"` and `\n`.** Asking the model for a sentence
+with a quote in it returned
+`"response":"She said \"hi\" then left.\n\nI'm sorry..."` on the first try. A
+scan for the next `"` after the marker stops in the middle of the reply, so the
+copy loop has to check for a backslash *first*.
+
+`json_string_value` (`main.c:1004`) does that: `strstr` for the key, then the
+un-escape loop, into a caller-provided buffer. It was extracted once `"error":"`
+needed the same treatment — the same "this loop is wanted twice" move as
+`tokenize` in 1.22. It returns `bool` for found/not-found, which is a different
+convention from the 0-is-success exit statuses everywhere else in this file.
+
+Bound the copy **once at the top of the loop body**, not at every store — each
+iteration writes at most one character, so one check covers them all.
+
+#### Multi-turn memory, for almost nothing
+
+`/api/generate` returns a `context` array, and passing it back on the next
+request is what gives the model memory. Verified: *"my favourite colour is
+green"* then *"what is my favourite colour?"* → *"Your favorite color is
+green."*, and a fresh `rotom convo` correctly does not remember.
+
+**The ints are never parsed.** `"context":[151644,8948,...]` contains only
+digits and commas — no escapes, no quotes — so it is found with `strstr`, sliced
+to the first `]` with `strchr`, `memcpy`'d out whole, and pasted back into the
+next body verbatim. 207 characters after one short exchange.
+
+**The buffer is local to the convo branch, not a file-scope static.** That is
+what makes `bye` reset the conversation, which is the behaviour you want.
+
+Empty context means the field is omitted entirely, which is exactly what a
+first turn needs.
+
+#### Bugs that recurred, in order of how often
+
+- **`return` inside the loop instead of after it** — twice, at stage 1 and again
+  at the end. Both times the symptom was identical and unmistakable: convo mode
+  answered exactly one message, then `bye` ran as a shell command and printed
+  `bye: command not found`.
+- **Missing `return` in a non-`void` function** — four times. The compiler named
+  the line every time.
+- **`fputc(c, response)` where `response` is a `char[]`** — `fputc` writes to a
+  `FILE *`. The array version is `response[len++] = c`.
+- **`'\\"'` is not a character.** JSON escapes are *two* bytes in the buffer, a
+  backslash and then the character; the multi-character constant warning is what
+  says so.
+- **Guarding the copy but not the terminator.** `context[len] = '\0'` sat
+  outside its `if (len < ctxsize)`, so an over-long context skipped the copy and
+  wrote the terminator past the end anyway — 1.20's lesson exactly, mirrored.
+- **`strlen(context)` passed where `sizeof(context)` was meant.** Capacity, not
+  current length. It fails silently and in the worst way: on turn one
+  `strlen("")` is 0, no copy ever happens, and the conversation simply has no
+  memory with nothing to indicate why.
+
+#### Measured, and known limits
+
+Cold call 9.1s, of which 6.1s is Ollama loading the model into RAM; warm calls
+~5.7s on `qwen2.5-coder:3b`. The shell blocks for that whole time.
+
+- **Stateless across sessions by design** — `bye` forgets everything.
+- `json_string_value` handles `\n \t \" \\` but not `\uXXXX`; it would store the
+  `u` literally. Has not come up in any reply yet.
+- `raw` caps at 64KB, so a very long reply truncates silently.
+- Context grows every turn. Past 65536 the copy is skipped and the older context
+  is kept, so the conversation quietly stops updating rather than breaking.
+- `/tmp/rotom_req.json` is a fixed path and is never removed.
+- `pclose` returns a `waitpid` status, so `decode_status()` from 1.2 is what
+  turns it into a real exit code — 7 for "nothing listening on 11434", 127 for
+  "curl not installed". Those two messages are reasoned from curl's measured
+  behaviour, **not** tested against a stopped Ollama.
+- `$?` is always 0 for the mode, decided deliberately. Per-reply status is not
+  reported.
+
+**Verified:** plain replies; replies containing quotes and newlines; `\d` and
+`"` in the prompt; empty lines skipped; `bye` returns to `$ `; EOF terminates
+instead of hanging; two turns in a row remembering; a second session forgetting;
+other builtins unaffected afterwards; 0 compiler warnings.
+
+#### The original write-up
+
+Kept because the framing of the problem still holds.
 
 **Yes, it is free.** Ollama runs entirely on this machine — no API key, no
 per-token cost, works with the network off. The costs are disk (~2GB for a 3B

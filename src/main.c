@@ -1531,6 +1531,8 @@ int main(int argc, char *argv[]) {
         emit_status = (nargs > 0);
 
 
+        // the below block is for if multiple commands are ran at once such as echo a && echo b
+    
         char **segments[32];  //  one entry per segment, each holding &args[start]
         int segment_argc[32];  // how many arguments each segment has
         int segment_operators[32];  // stores the operator before the current segment so segment_operators[0] is always OP_NONE
@@ -1538,14 +1540,14 @@ int main(int argc, char *argv[]) {
         int start = 0;
         int pending_op = OP_NONE;
 
-
-        // this is for if multiple commands are ran at once such as echo a && echo b
-        bool stop = run(args, nargs, input);
+        bool stop = false;
         
         for (int s = 0; s < num_segments; s++) {
+            // if the previous command failed, skip this command
             if (segment_operators[s] == OP_AND && last_status != 0) {
                 continue;
             }
+            // if the previous command suceeded, skip this command since it's or
             if (segment_operators[s] == OP_OR  && last_status == 0) {
                 continue;
             }

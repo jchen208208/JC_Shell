@@ -1208,9 +1208,9 @@ static bool run(char **args, int nargs, const char *input) {
 
     for (int i = 0; i < nargs; i++) {
         if (strcmp(args[i], "|") == 0) {
-            args[i] = NULL;     // NULL terminates to make the array before it one complete stage
-            stages[nstages] = &args[start];     // since args is just the address to the frist element of the array which is a string pointer (char *), so the first element in the stages array is a pointer type to the first string pointer in the args array
-            stage_argc[nstages] = i - start;    // calculates how many argumetns were in this stage
+            args[i] = NULL;  // NULL terminates to make the array before it one complete stage
+            stages[nstages] = &args[start];  // since args is just the address to the frist element of the array which is a string pointer (char *), so the first element in the stages array is a pointer type to the first string pointer in the args array
+            stage_argc[nstages] = i - start;  // calculates how many argumetns were in this stage
             nstages++;
             start = i + 1;  // repositions start to the element after '|'
             // similarly, for future stages, they will be pointers to the address of the string pointer element right after the new start index => &(*(args + start))
@@ -1533,15 +1533,41 @@ int main(int argc, char *argv[]) {
 
         // the below block is for if multiple commands are ran at once such as echo a && echo b
     
-        char **segments[32];  //  one entry per segment, each holding &args[start]
-        int segment_argc[32];  // how many arguments each segment has
-        int segment_operators[32];  // stores the operator before the current segment so segment_operators[0] is always OP_NONE
+        char **segments[64];  // an array of arrays, one array per segment, each holding &args[start] or the args for that segment
+        int segment_argc[64];  // how many arguments each segment has
+        int segment_operators[64];  // stores the operator before the current segment so segment_operators[0] is always OP_NONE
         int num_segments = 0;
         int start = 0;
-        int pending_op = OP_NONE;
+        int current_op = OP_NONE;  // the operator before the first segment is none
+
+        for (int i = 0; i < nargs; i++) {
+            if (num_segments < 64 && (strcmp(args[i], ";") == 0 || strcmp(args[i], "&&") == 0 || strcmp(args[i], "||") == 0)) {
+                segment_operators[num_segments] = current_op;
+                if (strcmp(args[i], ";") == 0) {
+                    current_op = OP_NONE;
+                }
+                else if (strcmp(args[i], "&&") == 0) {
+                    current_op = OP_AND;
+                }
+                else {
+                    current_op = OP_OR;
+                }
+                args[i] = NULL;  // NULL terminates to make the array before it one complete segment
+                segments[num_segments] = &args[start];  // args[start] is a single string so a char* type. we want the address of that string in memory 
+                segment_argc[num_segments] = i - start;
+                num_segments++;
+                start = i + 1;
+            }
+        }
+
+        // makes sure to append the last segment or if just one segment
+        segments[num_segments] = &args[start];
+        segment_argc[num_segments] = nargs - start;
+        segment_operators[num_segments] = current_op;
+        num_segments++;
 
         bool stop = false;
-        
+
         for (int s = 0; s < num_segments; s++) {
             // if the previous command failed, skip this command
             if (segment_operators[s] == OP_AND && last_status != 0) {

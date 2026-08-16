@@ -1187,6 +1187,299 @@ static int run_rotom(char **args, int nargs) {
 }
 
 
+static bool run(char **args, int nargs, const char *input) {
+    // saving the terminal fd to restore after
+    int saved_stdout = -1;
+    int saved_stderr = -1;
+
+    // a trailing & means run job in background
+    bool background_job = false;
+    if (nargs > 0 && strcmp(args[nargs - 1], "&") == 0) {
+        background_job = true;
+        args[--nargs] = NULL;
+    }
+
+
+    // pipeline detection block
+    char **stages[16];
+    int stage_argc[16]; // argument count for each stage
+    int nstages = 0;
+    int start = 0;
+
+    for (int i = 0; i < nargs; i++) {
+        if (strcmp(args[i], "|") == 0) {
+            args[i] = NULL;     // NULL terminates to make the array before it one complete stage
+            stages[nstages] = &args[start];     // since args is just the address to the frist element of the array which is a string pointer (char *), so the first element in the stages array is a pointer type to the first string pointer in the args array
+            stage_argc[nstages] = i - start;    // calculates how many argumetns were in this stage
+            nstages++;
+            start = i + 1;  // repositions start to the element after '|'
+            // similarly, for future stages, they will be pointers to the address of the string pointer element right after the new start index => &(*(args + start))
+        }
+    }
+
+    // appends the last stage after the last '|'
+    stages[nstages] = &args[start];
+    stage_argc[nstages] = nargs - start;
+    nstages++;
+    
+    int prev_read = -1;  // the fd for the read end left over from the previous stage
+    
+    
+    pid_t pids[16];
+
+    if (nstages > 1) {
+        for (int s = 0; s < nstages; s++) {
+            bool last_stage = (s == nstages - 1);
+            int fd[2];
+
+            if (!last_stage && pipe(fd) == -1) {
+                perror("pipe error");
+                break;
+            }
+
+            pid_t pid = fork();
+
+            if (pid == 0) {
+                // on the first stage, it's stdin is just the terminal so we don't set it's read end which is pointing to stage 2
+                if (prev_read != -1) {
+                    // after the first stage, we set the stdin for the current stage to be the last stage's read fd or prev_read
+                    dup2(prev_read, 0);
+                    close(prev_read);
+                }
+
+                if (!last_stage) {
+                    // if it's not the last stage, then we set the write end of the current pipe to be this stage
+                    dup2(fd[1], 1);
+                    close(fd[0]);
+                    close(fd[1]);
+                }
+
+                run_stage(stages[s], stage_argc[s]);
+            }
+
+            pids[s] = pid; // stores the child pid into the array
+
+            if (prev_read != -1) {
+                close(prev_read); // parent doesn't need it
+            }
+            
+            if (!last_stage) {
+                close(fd[1]);
+                prev_read = fd[0];  // carry the read end forward
+            }
+        }
+
+        for (int s = 0; s < nstages; s++) {
+            int status;
+            waitpid(pids[s], &status, 0);
+            last_status = decode_status(status);
+        }
+
+        return false;
+    }
+
+    // if no args inputed, free args memory and loop
+    if (args[0] == NULL) {
+        return false;
+    }
+
+    // checks for standard output and standard error redirections
+    char *out_filename = NULL;
+    bool out_append = false;
+    char *err_filename = NULL;
+    bool err_append = false;
+
+    int args_end = nargs;
+
+    for (int i = 0; i < args_end; i++) {
+        if ((strcmp(args[i], ">") == 0) || (strcmp(args[i], "1>") == 0)) {
+            out_filename = args[i + 1];
+            if (i < nargs) {
+                nargs = i;
+            }
+            args[i] = NULL;
+        }
+
+        else if ((strcmp(args[i], "2>") == 0)) {
+            err_filename = args[i + 1];
+            if (i < nargs) {
+                nargs = i;
+            }
+            args[i] = NULL;
+        }
+
+        else if ((strcmp(args[i], ">>") == 0) || (strcmp(args[i], "1>>") == 0)) {
+            out_filename = args[i + 1];
+            out_append = true;
+            if (i < nargs) {
+                nargs = i;
+            }
+            args[i] = NULL;
+        }
+
+         else if (strcmp(args[i], "2>>") == 0) {
+            err_filename = args[i + 1];
+            err_append = true;
+            if (i < nargs) {
+                nargs = i;
+            }
+            args[i] = NULL;
+        }
+    }
+
+    // redirect stdout to the file for builtins
+    if (out_filename != NULL && is_builtin(args[0])) {
+        int fd = open(out_filename, O_WRONLY | O_CREAT | (out_append ? O_APPEND : O_TRUNC), 0644);
+
+        if (fd < 0) {
+            perror(out_filename);
+            return false;
+        }
+
+        saved_stdout = dup(1);
+        dup2(fd, 1);
+        close(fd);
+    }
+
+    // redirect stderr for builtins
+    if (err_filename != NULL && is_builtin(args[0])) {
+        int fd = open(err_filename, O_WRONLY | O_CREAT | (err_append ? O_APPEND : O_TRUNC), 0644);
+
+        if (fd < 0) {
+            perror(err_filename);
+            return false;
+        }
+
+        saved_stderr = dup(2);
+        dup2(fd, 2);
+        close(fd);
+    }
+
+    // exits the loop
+    if (strcmp(args[0], "exit") == 0) {
+        return true;
+    }
+
+    // runs any built-in commands
+    else if (is_builtin(args[0])) {
+        last_status = run_builtin(args, nargs);
+    }
+    
+    // if the first argument of input is an executable file, run that process using a child process and taking in the rest of the arguments as the child process's arguments
+    else {
+        char *full_path = find_in_path(args[0]);
+        if (full_path == NULL) {
+            fprintf(stderr, "%s: command not found\n", args[0]);
+            last_status = 127;
+        }
+
+        else {
+            
+            pid_t pid = fork();
+
+            if (pid == 0) {
+                // child process, becomes the program
+
+                if (out_filename != NULL) {
+                    int fd = open(out_filename, O_WRONLY | O_CREAT | (out_append ? O_APPEND : O_TRUNC), 0644);
+
+                    if (fd < 0) {
+                        perror(out_filename);
+                        exit(1);
+                    }
+
+                    dup2(fd, 1);
+
+                    close(fd);
+                }
+
+                if (err_filename != NULL) {
+                    int fd = open(err_filename, O_WRONLY | O_CREAT | (err_append ? O_APPEND : O_TRUNC), 0644);
+
+                    if (fd < 0) {
+                        perror(err_filename);
+                        exit(2);
+                    }
+
+                    dup2(fd, 2);
+
+                    close(fd);
+                }
+
+                // executes the executable. Any form of the exec() function replaces the process that called it's memory, and the child process now is the exec() process,
+                // but the process still has the same PID, parent, and file descriptors so the waitpid() call in the parent still waits for this process to finish.
+                execv(full_path, args);
+
+                // only runs if execv failed
+                perror("execv");
+                exit(1);
+            }
+
+            else if (pid > 0) {
+                if (background_job) {
+                    if (njobs < 64) {
+                        // stores the current job's data into the jobs array
+                        int max = 0;
+                        for (int i = 0; i < njobs; i++) {
+                            if (jobs[i].number > max) {
+                                max = jobs[i].number;
+                            }
+                        }
+                        jobs[njobs].number = max + 1;
+                        jobs[njobs].pid = pid;
+                        int len = strlen(input);
+                        // the below bloack is for getting rid of the spaces and & at the end of the input since the format for printing a Done job ommits it
+                        while (len > 0 && (input[len-1] == ' ' || input[len-1] == '\t')) {
+                            len--;
+                        } // strips trailing spaces until '&'
+                        if (len > 0 && input[len-1] == '&') {
+                            len--;
+                        } // gets rid of '&'
+                        while (len > 0 && (input[len-1] == ' ' || input[len-1] == '\t')) {
+                            len--;
+                        } // gets rid of spaces between '&' and the actual end of the command
+                        snprintf(jobs[njobs].command, sizeof(jobs[njobs].command), "%.*s", len, input);
+                    }
+                    printf("[%d] %d\n", jobs[njobs].number, pid); //prints the job number and the child process identifier
+                    njobs++;
+                }
+
+                else {
+                    // parent process waits for the child to finish
+                    int status;
+                    waitpid(pid, &status, 0);
+                    
+                    last_status = decode_status(status);
+                }
+            }
+
+            else {
+                perror("fork");
+            }
+
+            free(full_path);
+        }
+
+    }
+
+    // restores stdout to the terminal after a builtin redirect
+    if (saved_stdout != -1) {
+        dup2(saved_stdout, 1);
+        close(saved_stdout);
+    }
+
+    if (saved_stderr != -1) {
+        dup2(saved_stderr, 2);
+        close(saved_stderr);
+    }
+
+    return false;
+}
+
+
+enum {OP_NONE, OP_AND, OP_OR};
+
+
 // REPL loop
 int main(int argc, char *argv[]) {
     setbuf(stdout, NULL);
@@ -1223,7 +1516,6 @@ int main(int argc, char *argv[]) {
             nhistory++;
         }
 
-        
         char *args[64];
         int nargs;
         char *allocated[64]; // kept to free args addresses after reassignment like >
@@ -1238,296 +1530,39 @@ int main(int argc, char *argv[]) {
         nalloc = nargs;
         emit_status = (nargs > 0);
 
-        // saving the terminal fd to restore after
-        int saved_stdout = -1;
-        int saved_stderr = -1;
 
-
-        // a trailing & means run job in background
-        bool background_job = false;
-        if (nargs > 0 && strcmp(args[nargs - 1], "&") == 0) {
-            background_job = true;
-            args[--nargs] = NULL;
-        }
-
-
-        // pipeline detection block
-        char **stages[16];
-        int stage_argc[16]; // argument count for each stage
-        int nstages = 0;
+        char **segments[32];  //  one entry per segment, each holding &args[start]
+        int segment_argc[32];  // how many arguments each segment has
+        int segment_operators[32];  // stores the operator before the current segment so segment_operators[0] is always OP_NONE
+        int num_segments = 0;
         int start = 0;
+        int pending_op = OP_NONE;
 
-        for (int i = 0; i < nargs; i++) {
-            if (strcmp(args[i], "|") == 0) {
-                args[i] = NULL;     // NULL terminates to make the array before it one complete stage
-                stages[nstages] = &args[start];     // since args is just the address to the frist element of the array which is a string pointer (char *), so the first element in the stages array is a pointer type to the first string pointer in the args array
-                stage_argc[nstages] = i - start;    // calculates how many argumetns were in this stage
-                nstages++;
-                start = i + 1;  // repositions start to the element after '|'
-                // similarly, for future stages, they will be pointers to the address of the string pointer element right after the new start index => &(*(args + start))
-            }
-        }
 
-        // appends the last stage after the last '|'
-        stages[nstages] = &args[start];
-        stage_argc[nstages] = nargs - start;
-        nstages++;
+        // this is for if multiple commands are ran at once such as echo a && echo b
+        bool stop = run(args, nargs, input);
         
-        int prev_read = -1;  // the fd for the read end left over from the previous stage
-        
-        
-        pid_t pids[16];
-
-        if (nstages > 1) {
-            for (int s = 0; s < nstages; s++) {
-                bool last_stage = (s == nstages - 1);
-                int fd[2];
-
-                if (!last_stage && pipe(fd) == -1) {
-                    perror("pipe error");
-                    break;
-                }
-
-                pid_t pid = fork();
-
-                if (pid == 0) {
-                    // on the first stage, it's stdin is just the terminal so we don't set it's read end which is pointing to stage 2
-                    if (prev_read != -1) {
-                        // after the first stage, we set the stdin for the current stage to be the last stage's read fd or prev_read
-                        dup2(prev_read, 0);
-                        close(prev_read);
-                    }
-
-                    if (!last_stage) {
-                        // if it's not the last stage, then we set the write end of the current pipe to be this stage
-                        dup2(fd[1], 1);
-                        close(fd[0]);
-                        close(fd[1]);
-                    }
-
-                    run_stage(stages[s], stage_argc[s]);
-                }
-
-                pids[s] = pid; // stores the child pid into the array
-
-                if (prev_read != -1) {
-                    close(prev_read); // parent doesn't need it
-                }
-                
-                if (!last_stage) {
-                    close(fd[1]);
-                    prev_read = fd[0];  // carry the read end forward
-                }
+        for (int s = 0; s < num_segments; s++) {
+            if (segment_operators[s] == OP_AND && last_status != 0) {
+                continue;
             }
-
-            for (int s = 0; s < nstages; s++) {
-                int status;
-                waitpid(pids[s], &status, 0);
-                last_status = decode_status(status);
+            if (segment_operators[s] == OP_OR  && last_status == 0) {
+                continue;
             }
-
-            goto free_args;
-        }
-
-        // if no args inputed, free args memory and loop
-        if (args[0] == NULL) {
-            goto free_args;
-        }
-
-        // checks for standard output and standard error redirections
-        char *out_filename = NULL;
-        bool out_append = false;
-        char *err_filename = NULL;
-        bool err_append = false;
-
-        int args_end = nargs;
-
-        for (int i = 0; i < args_end; i++) {
-            if ((strcmp(args[i], ">") == 0) || (strcmp(args[i], "1>") == 0)) {
-                out_filename = args[i + 1];
-                if (i < nargs) {
-                    nargs = i;
-                }
-                args[i] = NULL;
-            }
-
-            else if ((strcmp(args[i], "2>") == 0)) {
-                err_filename = args[i + 1];
-                if (i < nargs) {
-                    nargs = i;
-                }
-                args[i] = NULL;
-            }
-
-            else if ((strcmp(args[i], ">>") == 0) || (strcmp(args[i], "1>>") == 0)) {
-                out_filename = args[i + 1];
-                out_append = true;
-                if (i < nargs) {
-                    nargs = i;
-                }
-                args[i] = NULL;
-            }
-
-             else if (strcmp(args[i], "2>>") == 0) {
-                err_filename = args[i + 1];
-                err_append = true;
-                if (i < nargs) {
-                    nargs = i;
-                }
-                args[i] = NULL;
+            if (run(segments[s], segment_argc[s], input)) { 
+                stop = true;
+                break;
             }
         }
 
-        // redirect stdout to the file for builtins
-        if (out_filename != NULL && is_builtin(args[0])) {
-            int fd = open(out_filename, O_WRONLY | O_CREAT | (out_append ? O_APPEND : O_TRUNC), 0644);
-
-            if (fd < 0) {
-                perror(out_filename);
-                goto free_args;
-            }
-
-            saved_stdout = dup(1);
-            dup2(fd, 1);
-            close(fd);
+        for (int i = 0; i < nalloc; i++) {
+            free(allocated[i]);
         }
 
-        // redirect stderr for builtins
-        if (err_filename != NULL && is_builtin(args[0])) {
-            int fd = open(err_filename, O_WRONLY | O_CREAT | (err_append ? O_APPEND : O_TRUNC), 0644);
-
-            if (fd < 0) {
-                perror(err_filename);
-                goto free_args;
-            }
-
-            saved_stderr = dup(2);
-            dup2(fd, 2);
-            close(fd);
-        }
-
-        // exits the loop
-        if (strcmp(args[0], "exit") == 0) {
+        // if "exit" was typed in run()
+        if (stop) {
             break;
         }
-
-        // runs any built-in commands
-        else if (is_builtin(args[0])) {
-            last_status = run_builtin(args, nargs);
-        }
-        
-        // if the first argument of input is an executable file, run that process using a child process and taking in the rest of the arguments as the child process's arguments
-        else {
-            char *full_path = find_in_path(args[0]);
-            if (full_path == NULL) {
-                fprintf(stderr, "%s: command not found\n", args[0]);
-                last_status = 127;
-            }
-
-            else {
-                
-                pid_t pid = fork();
-
-                if (pid == 0) {
-                    // child process, becomes the program
-
-                    if (out_filename != NULL) {
-                        int fd = open(out_filename, O_WRONLY | O_CREAT | (out_append ? O_APPEND : O_TRUNC), 0644);
-
-                        if (fd < 0) {
-                            perror(out_filename);
-                            exit(1);
-                        }
-
-                        dup2(fd, 1);
-
-                        close(fd);
-                    }
-
-                    if (err_filename != NULL) {
-                        int fd = open(err_filename, O_WRONLY | O_CREAT | (err_append ? O_APPEND : O_TRUNC), 0644);
-
-                        if (fd < 0) {
-                            perror(err_filename);
-                            exit(2);
-                        }
-
-                        dup2(fd, 2);
-
-                        close(fd);
-                    }
-
-                    // executes the executable. Any form of the exec() function replaces the process that called it's memory, and the child process now is the exec() process,
-                    // but the process still has the same PID, parent, and file descriptors so the waitpid() call in the parent still waits for this process to finish.
-                    execv(full_path, args);
-
-                    // only runs if execv failed
-                    perror("execv");
-                    exit(1);
-                }
-
-                else if (pid > 0) {
-                    if (background_job) {
-                        if (njobs < 64) {
-                            // stores the current job's data into the jobs array
-                            int max = 0;
-                            for (int i = 0; i < njobs; i++) {
-                                if (jobs[i].number > max) {
-                                    max = jobs[i].number;
-                                }
-                            }
-                            jobs[njobs].number = max + 1;
-                            jobs[njobs].pid = pid;
-                            int len = strlen(input);
-                            // the below bloack is for getting rid of the spaces and & at the end of the input since the format for printing a Done job ommits it
-                            while (len > 0 && (input[len-1] == ' ' || input[len-1] == '\t')) {
-                                len--;
-                            } // strips trailing spaces until '&'
-                            if (len > 0 && input[len-1] == '&') {
-                                len--;
-                            } // gets rid of '&'
-                            while (len > 0 && (input[len-1] == ' ' || input[len-1] == '\t')) {
-                                len--;
-                            } // gets rid of spaces between '&' and the actual end of the command
-                            snprintf(jobs[njobs].command, sizeof(jobs[njobs].command), "%.*s", len, input);
-                        }
-                        printf("[%d] %d\n", jobs[njobs].number, pid); //prints the job number and the child process identifier
-                        njobs++;
-                    }
-
-                    else {
-                        // parent process waits for the child to finish
-                        int status;
-                        waitpid(pid, &status, 0);
-                        
-                        last_status = decode_status(status);
-                    }
-                }
-
-                else {
-                    perror("fork");
-                }
-
-                free(full_path);
-            }
-
-        }
-
-        // restores stdout to the terminal after a builtin redirect
-        if (saved_stdout != -1) {
-            dup2(saved_stdout, 1);
-            close(saved_stdout);
-        }
-
-        if (saved_stderr != -1) {
-            dup2(saved_stderr, 2);
-            close(saved_stderr);
-        }
-
-        free_args:
-            for (int i = 0; i < nalloc; i++) {
-                free(allocated[i]);
-            }
     }
 
     // writes command to history file on exit

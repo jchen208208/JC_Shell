@@ -20,18 +20,19 @@ in five stages with the tests green between each. Multi-turn memory came free at
 the end by replaying Ollama's own `context` array. 1.24 was **dropped, not
 built** — see that section; `exit` already does the entire job.
 
+Cleared on 2026-08-16: 1.3 — `;`, `&&`, `||`. Done in two moves, not one: the
+line-running body came out of `main` into `run()` as a **pure extraction with
+no behaviour change**, proved by diffing its output against the pre-refactor
+binary, and only then did the segment loop go in on top of it. Two things it
+surfaced are logged as 1.26 and 1.27.
+
 Remaining, in the order they are worth doing:
 
-1. **[1.3](#13-command-separators---)** — `;`, `&&`, `||`. Everything it needs
-   is now in place: 1.2 gives it `last_status`, and 1.22 makes the tokenizer
-   emit the operators as their own tokens whether or not you type spaces.
-   What is left is the execution half — walk `args`, break on the operator
-   token, record which operator preceded each segment, and use `last_status`
-   to decide whether to run the next one. Copy the shape of the pipeline split.
-   Two snags to decide up front: `exit` currently `break`s straight out of the
-   main `while` (a two-level break once segments are a loop), and
-   `continue`/`goto free_args` from inside a segment would skip the segments
-   after it.
+1. **[1.26](#126-variables-expand-once-per-line-not-per-segment)** — `$?` in a
+   later segment reads the status from the *previous line*, because `tokenize`
+   expands every `$` before any segment runs. The one thing 1.3 left actually
+   wrong. **Not a patch** — it means separating expansion from tokenizing, so
+   read that section before starting.
 2. **[1.10](#110-cursor-movement-with-left-and-right-arrows)** — left/right
    arrow navigation. **Not small.** Read that section before starting it.
 3. **[1.14](#114-backspace-counts-bytes-not-columns)** — backspace eats the
@@ -40,6 +41,8 @@ Remaining, in the order they are worth doing:
 4. **[1.1](#11-input-redirection-)** (`<`) and
    **[1.18](#118-redirection-is-ignored-inside-a-pipeline)** — both live in the
    redirection parser, so do them together.
+5. **[1.27](#127-jobs-shows-the-whole-line-for-a-backgrounded-segment)** —
+   cosmetic wart in `jobs` output, three lines to fix, no hurry.
 
 Both of the `rotom` subcommands that were written up are now settled: 1.25 is
 built, and 1.24 is closed as unnecessary.
@@ -98,14 +101,16 @@ Verified by running the binary, not by reading the code.
 - `rotom convo` — a conversation mode that sends each line to a local Ollama
   model instead of the parser, with multi-turn memory; `bye` leaves (1.25)
 - Tokenizing lives in its own `tokenize()` function, not inline in `main` (1.22)
+- Command separators — `;`, `&&`, `||`, chained freely and mixed with
+  pipelines, redirection and `&` (1.3)
+- Running one command line lives in its own `run()` function; `main` is now
+  read line → tokenize → split into segments → loop (1.3)
 
 **Not working yet** — each of these was tested and confirmed missing:
 
 | Feature | Current behaviour |
 |---|---|
 | `<` input redirection | Tokenized correctly, but nothing acts on it — `wc -l < f` still passes `<` to `wc` |
-| `&&` and `\|\|` | Tokenized correctly, but nothing executes them yet |
-| `;` separator | Tokenized correctly, but nothing executes them yet |
 | Globbing (`*.md`) | Prints `*.md` |
 | `~` outside `cd` | Prints `~` |
 | Completion inside quotes | Word boundary ignores quotes, so `"My Doc<TAB>` fails |
@@ -185,25 +190,98 @@ Two missing-return warnings turned up during this and both were real
 **Verified:** `true`→0, `false`→1, `exit 42`→42, `nosuchcmd`→127, SIGKILL→137,
 Ctrl-C→130, `cd /nope`→1, `false | true`→0, `ls /nope | wc -l`→0.
 
-### 1.3 Command separators `;`, `&&`, `||`
+### 1.3 Command separators `;`, `&&`, `||` — DONE (2026-08-16)
 
-**Goal:** Chain commands on one line, with conditionals.
+`;`, `&&` and `||` chain commands on one line. 1.22 had already made the
+tokenizer emit all three as their own tokens; this was purely the execution
+half.
 
-**What to do:** Depends on 1.2 — `&&` and `||` are defined by exit status.
-Split the line into segments on these operators *before* the current parsing
-runs, then run each segment through the existing path. `&&` runs the next
-segment only on exit 0; `||` only on non-zero.
+**The refactor came first, and separately.** Everything from the background `&`
+check to the fd-restore blocks — about 280 lines — was one straight run inside
+`main`'s `while`, written on the assumption that a line is a command. Segments
+break that assumption, so the body moved out into
+`run(char **args, int nargs, const char *input)` **before any feature code was
+written**, as a change that was supposed to do nothing at all.
 
-Watch out: `&&` must not be confused with the existing background `&` check at
-`src/main.c:942`. Check for `&&` first.
+Proving it did nothing was worth the five minutes: `git show HEAD:src/main.c`
+built to a second binary, both fed the same script, `diff` on the output. The
+only difference was a background job's PID. Without that check, every later bug
+would have had two possible causes instead of one.
 
-**Passes when:**
-```sh
-echo a ; echo b              # a then b
-true && echo yes             # yes
-false && echo no             # nothing
-false || echo fallback       # fallback
+**`run` returns one bit, not a status.** `last_status` is a global that the body
+already writes, so nothing needs handing back except "did this line say `exit`".
+That is what makes the two-level break work: `run` returns `true`, `main` frees
+the line's tokens and breaks its own loop. The four `goto free_args` inside the
+body became `return false`, and the `free_args` label — now the target of
+nothing — was deleted, though the free loop under it stayed, since it is still
+the only thing that frees the tokens.
+
+**The extraction paid for itself immediately.** The trailing-`&` check reads the
+last token of *what it was handed*. Handed a segment instead of a line, it
+started working per segment for free, so `sleep 1 & ; echo hi` backgrounds only
+the `sleep`. Nothing was written to make that happen.
+
+#### The split
+
+Three parallel arrays plus two pieces of loop state, the same shape as the
+pipeline split one level down:
+
+```c
+char **segments[64];       // &args[start] for each segment
+int segment_argc[64];      // token count for each
+int segment_operators[64]; // the operator BEFORE each one
+int num_segments = 0;
+int start = 0;
+int current_op = OP_NONE;
 ```
+
+**`segment_operators[k]` holds the operator that comes *before* segment k, and
+that off-by-one is the whole trick.** An operator at index `i` closes the
+segment behind it but describes the segment ahead of it. `current_op` is what
+holds it across the gap: close the segment with the *old* value, then update it.
+Getting those two lines in the wrong order silently shifts every gate by one.
+
+**The tail segment always exists.** The loop only closes a segment when it finds
+an operator, so a line with none produces zero segments and runs nothing at all
+— which is exactly what happened first: `echo hi` printed nothing. The append
+after the loop, with count `nargs - start`, is what makes an ordinary one-command
+line work.
+
+**A skipped segment must leave `last_status` alone.** The gate is two `continue`s
+against `OP_AND`/`OP_OR`, and because `last_status` is re-read at the top of each
+iteration, the skip propagates on its own: in `false && echo a && echo b` the
+first `&&` skips, the status stays 1, and the second `&&` skips too. Zeroing the
+status on a skip would have run `echo b`.
+
+**`OP_NONE` covers both `;` and the first segment.** Neither has a condition
+attached, and the gate only ever tests for the other two, so one code does both.
+
+**Sized 64, not 32.** Max segments is `nargs + 1`, and `tokenize` caps at 63
+tokens, so a line of 63 semicolons makes 64 segments. Sized 32 that is a stack
+smash — the 1.19/1.20/1.21 pattern for the fourth time.
+
+#### Two bugs, both caught by tooling rather than by reading
+
+**`args[i] = NULL` ran before the `strcmp`s that identified the operator.**
+Segfault on the first line typed. The NULL that terminates the preceding segment
+and the read that classifies the operator want the same slot, in that order —
+classify first.
+
+**A dropped `strcmp` turned a comparison into the comma operator.**
+`(args[i], ";") == 0` compiles cleanly: it evaluates `args[i]`, discards it,
+yields the literal `";"`, and compares that pointer against 0 — always false, so
+`;` was simply never detected while `&&` and `||` worked perfectly. The compiler
+said `left operand of comma operator has no effect`. That warning is the only
+reason it took two minutes. **Worth building with `-Wall`** — it would also have
+flagged the NULL-then-`strcmp` crash above.
+
+**Verified:** `echo a ; echo b`→two lines; `true && echo yes`→`yes`;
+`false && echo no`→nothing; `false || echo fallback`→`fallback`;
+`echo a && echo b && echo c`→all three; `false && echo no ; echo always`→
+`always`; `false && echo x && echo y`→nothing; `true || echo skipped`→nothing;
+`echo hi | wc -c && echo done`→`3` then `done`; `sleep 0.1 & ; echo after`→job
+line then `after`; `echo r > f ; cat f`→`r`; `exit 0` mid-line still exits;
+63 semicolons→refused by `tokenize`, no crash.
 
 ### 1.4 Tilde expansion
 
@@ -1163,6 +1241,81 @@ what is a pipe?
 bye
 # back at the $ prompt
 ```
+
+### 1.26 Variables expand once per line, not per segment
+
+**Symptom:** `$?` in a later segment reports the status from the *previous
+line*, not from the segment that just ran.
+
+```sh
+$ true
+$ false ; echo $?
+0            # should be 1
+$ nosuch
+nosuch: command not found
+$ true ; echo $?
+127          # the status of `nosuch`, from the line before
+```
+
+**Cause:** `tokenize` (`main.c:825`) does `$` expansion inline, as it scans. It
+runs once, over the whole line, *before* the split loop exists and long before
+any segment runs. So every `$?` and `$VAR` on the line is frozen to whatever the
+value was when the line was typed. Real shells expand each command immediately
+before running it, which is why `false ; echo $?` prints 1 there.
+
+The mechanism is not new, but the bug is. While one line meant one command,
+expanding once per line was indistinguishable from expanding per command —
+`$?` referred to the previous line either way, which is what bash does too.
+Pipelines did not break it for the same reason: a pipeline is one command.
+1.3 is what makes a line hold two commands, and the assumption goes with it.
+
+**Not a patch.** The fix is to pull expansion out of `tokenize` so that
+tokenizing produces raw words, and to run expansion over a segment's words in
+`run()`, just before dispatch. That splits one pass into two and touches the
+`allocated[]` bookkeeping — every expanded word is a fresh `strdup` that has to
+be freed by someone, and the current owner is the per-line array in `main`.
+Decide who owns the memory before writing anything.
+
+Watch for: single quotes must still suppress expansion, and that information
+currently lives only inside `tokenize`'s scanner. Raw words alone do not carry
+it, so either quoting state travels with each word or expansion stays where the
+quotes are known.
+
+**Passes when:**
+```sh
+false ; echo $?          # 1
+true ; echo $?           # 0
+nosuch ; echo $?         # 127
+false || echo $?         # 1
+echo '$?'                # $?, still unexpanded
+```
+
+### 1.27 `jobs` shows the whole line for a backgrounded segment
+
+**Symptom:**
+
+```sh
+$ sleep 0.1 & ; echo after
+[1] 38398
+after
+$ jobs
+[1]+  Running                 sleep 0.1 & ; echo after &
+```
+
+The job ran correctly — only `sleep` was backgrounded — but `jobs` names it with
+the entire line, including the `;` and the command that followed.
+
+**Cause:** `run()` takes `const char *input`, the whole line, and the job-record
+block strips the trailing `&` off *that* to build the display string. Before 1.3
+the line and the segment were the same thing, so it was right by accident.
+
+**Fix:** the display text has to come from the segment, not the line —
+reassemble it from `args[0..nargs)` at the point the job is recorded, or pass
+`run()` the slice of `input` the segment came from. The first is simpler and
+does not need the tokenizer to track offsets; it loses the user's original
+spacing, which `jobs` output does not care about.
+
+Cosmetic only. Nothing behaves wrongly.
 
 ---
 

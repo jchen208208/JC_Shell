@@ -1000,6 +1000,58 @@ static void create_json_string(FILE *f, const char *s) {
     }
 }
 
+// helper to parse returned json string
+static bool json_string_value(const char *raw, const char *key, char *output, int outsize) {
+    const char *start = strstr(raw, key);
+    if (start == NULL) {
+        return 0;
+    }
+    start += strlen(key);  // adds on the length of "response":" or error
+    int len = 0;
+    int i = 0;
+    
+    while (*(start + i) != '\0') {
+        if (len >= outsize - 1) {
+            break;
+        }
+
+        char c = start[i];
+
+        if (c == '\\') {
+            if (start[i + 1] == 'n') {
+                output[len++] = '\n';
+                i++;
+            }
+            else if (start[i + 1] == 't') {
+                output[len++] = '\t';
+                i++;
+            }
+            else if (start[i + 1] == '"') {
+                output[len++] = '\"';
+                i++;
+            }
+            else if (start[i + 1] == '\\') {
+                output[len++] = '\\';
+                i++;
+            }
+            else {
+                output[len++] = c;
+            }
+        }
+        else if (c == '"') {  // closing quote of the response string
+            break;
+        }
+        else {
+                output[len++] = c;
+        }
+
+        i++;
+    }
+
+    output[len] = '\0';
+    return true;
+}
+
 // used for the 'rotom convo' command
 static int ask_ollama(const char *prompt) {
     FILE *f = fopen("/tmp/rotom_req.json", "w");
@@ -1017,7 +1069,6 @@ static int ask_ollama(const char *prompt) {
     FILE *json = popen("curl -s -m 120 -d @/tmp/rotom_req.json http://localhost:11434/api/generate", "r");
     if (json == NULL) {
         perror("rotom convo: curl");
-        pclose(json);
         return 1;
     }
 
@@ -1027,56 +1078,19 @@ static int ask_ollama(const char *prompt) {
         strncat(raw, buf, sizeof(raw) - strlen(raw) - 1);
     }
 
-    char* resp_start = strstr(raw, "\"response\":\"");
-    if (resp_start == NULL) {
-        fprintf(stderr, "response not found\n");
-        return 1;
-    }
-    resp_start += 12;  // since "response":" is 12 chars
-
     char response[65536];
-    int len = 0;
-    int i = 0;
-
-    while (*(resp_start + i) != '\0') {
-        char c = resp_start[i];
-
-        if (c == '\\') {
-            if (resp_start[i + 1] == 'n') {
-                response[len++] = '\n';
-                i++;
-            }
-            else if (resp_start[i + 1] == 't') {
-                response[len++] = '\t';
-                i++;
-            }
-            else if (resp_start[i + 1] == '"') {
-                response[len++] = '\"';
-                i++;
-            }
-            else if (resp_start[i + 1] == '\\') {
-                response[len++] = '\\';
-                i++;
-            }
-            else {
-                response[len++] = c;
-            }
-        }
-        else if (c == '"') {  // closing quote of the response string
-            break;
-        }
-        else {
-                response[len++] = c;
-        }
-
-        i++;
+    if (json_string_value(raw, "\"response\":\"", response, sizeof(response))) {
+        printf("rotom> %s\n", response);
     }
-    
-    response[len] = '\0';
-    printf("rotom> %s\n", response);
+    else if (json_string_value(raw, "\"error\":\"", response, sizeof(response))) {
+        fprintf(stderr, "rotom: %s\n", response);
+    }
+    else {
+        fprintf(stderr, "rotom: no response\n");
+    }
 
-    pclose(json);
-    return 0;
+    int status = pclose(json); 
+    return decode_status(status);
 }
 
 // tells rotom whether to emit the previous command exit status, don't emit on the first loop
@@ -1125,7 +1139,7 @@ static int run_rotom(char **args, int nargs) {
         while (true) {
             printf("> ");
             if (read_line(line, sizeof(line)) < 0) {
-                return 1;
+                return 0;
             }
             if (strcmp(line, "bye") == 0) {
                 printf("rotom> Bye!\n");

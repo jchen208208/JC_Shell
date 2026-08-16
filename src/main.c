@@ -1149,7 +1149,14 @@ static int run_rotom(char **args, int nargs) {
                 continue;
             }
             else {
-                ask_ollama(line);
+                int status = ask_ollama(line);
+                if (status == 7) {
+                    fprintf(stderr, "can't reach ollama\n");
+                }
+                else if (status == 127) {
+                    fprintf(stderr, "curl not found\n");
+                }
+                return 0;
             }
         }
     }

@@ -981,7 +981,7 @@ static int tokenize(char *input, char *args[], char *allocated[]) {
 }
 
 
-// helps format the prompt
+// helper for formatting the prompt
 static void create_json_string(FILE *f, const char *s) {
     for (int i = 0; s[i] != '\0'; i++) {
         unsigned char c = s[i];
@@ -1007,20 +1007,74 @@ static int ask_ollama(const char *prompt) {
         perror("/tmp/rotom_req.json");
         return 1;
     }
-    fprintf(f, "{\"model\":\"qwen2.5-coder:3b\",\"prompt\":\"%s\",\"stream\":false}", prompt);
+
+    // prints the ollama request dict into the json file
+    fprintf(f, "{\"model\":\"qwen2.5-coder:3b\",\"prompt\":\"");
+    create_json_string(f, prompt);  // makes sure the prompt is formatted correctly
+    fprintf(f, "\",\"stream\":false}");
     fclose(f);
 
     FILE *json = popen("curl -s -m 120 -d @/tmp/rotom_req.json http://localhost:11434/api/generate", "r");
     if (json == NULL) {
         perror("rotom convo: curl");
+        pclose(json);
         return 1;
     }
 
+    char raw[65536] = "\0";
     char buf[1024];
     while (fgets(buf, sizeof(buf), json) != NULL) {
-        printf("%s", buf);
+        strncat(raw, buf, sizeof(raw) - strlen(raw) - 1);
+    }
+
+    char* resp_start = strstr(raw, "\"response\":\"");
+    if (resp_start == NULL) {
+        fprintf(stderr, "response not found\n");
+        return 1;
+    }
+    resp_start += 12;  // since "response":" is 12 chars
+
+    char response[65536];
+    int len = 0;
+    int i = 0;
+
+    while (*(resp_start + i) != '\0') {
+        char c = resp_start[i];
+
+        if (c == '\\') {
+            if (resp_start[i + 1] == 'n') {
+                response[len++] = '\n';
+                i++;
+            }
+            else if (resp_start[i + 1] == 't') {
+                response[len++] = '\t';
+                i++;
+            }
+            else if (resp_start[i + 1] == '"') {
+                response[len++] = '\"';
+                i++;
+            }
+            else if (resp_start[i + 1] == '\\') {
+                response[len++] = '\\';
+                i++;
+            }
+            else {
+                response[len++] = c;
+            }
+        }
+        else if (c == '"') {  // closing quote of the response string
+            break;
+        }
+        else {
+                response[len++] = c;
+        }
+
+        i++;
     }
     
+    response[len] = '\0';
+    printf("rotom> %s\n", response);
+
     pclose(json);
     return 0;
 }

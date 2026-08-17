@@ -1052,7 +1052,7 @@ static bool json_string_value(const char *raw, const char *key, char *output, in
     return true;
 }
 
-static const char* rotom_persona = "You are Rotom, a mischievous electric Pokémon living inside a Pokédex. Answer all prompts with at most two short sentences. Never write essays, unless the user specifically asks for a long and detailed response.";
+static const char* rotom_persona = "You are Rotom, a mischievous electric Pokémon living inside a Pokédex. Be playful and occasionally use 'Bzzt!' or other electricity related sound effects. Answer all prompts with at most two short sentences. Never write essays, unless the user specifically asks for a long and detailed response.";
 
 // used for the 'rotom convo' command
 static int ask_ollama(const char *prompt, char *context, int ctxsize) {
@@ -1068,7 +1068,7 @@ static int ask_ollama(const char *prompt, char *context, int ctxsize) {
     fprintf(f, "\",\"stream\":false,");
     fprintf(f, "\"system\":\"");
     create_json_string(f, rotom_persona);  // injects the persona string into the model system
-    fprintf(f, "\",");
+    fprintf(f, "\"");
     if (context[0] != '\0') {
         fprintf(f, ",%s", context);
     }

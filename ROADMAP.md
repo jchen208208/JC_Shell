@@ -26,6 +26,12 @@ no behaviour change**, proved by diffing its output against the pre-refactor
 binary, and only then did the segment loop go in on top of it. Two things it
 surfaced are logged as 1.26 and 1.27.
 
+Cleared on 2026-08-17: 2.5 — fullscreen stopped stretching the Dex art and got
+its own design. The hologram covers the screen, the terminal lives inside its
+inner ring at 145x42 instead of 39x10, and a Gen 5 Rotom sprite drifts around
+behind the text. Read that section before touching either layout; the sprite
+sits *behind* the terminal for a reason, and the reason is written down.
+
 Remaining, in the order they are worth doing:
 
 1. **[1.26](#126-variables-expand-once-per-line-not-per-segment)** — `$?` in a
@@ -43,6 +49,9 @@ Remaining, in the order they are worth doing:
    redirection parser, so do them together.
 5. **[1.27](#127-jobs-shows-the-whole-line-for-a-backgrounded-segment)** —
    cosmetic wart in `jobs` output, three lines to fix, no hurry.
+6. **[1.28](#128-rotom-form--switch-the-hovering-sprite)** — `rotom form` to
+   swap which Rotom hovers in fullscreen. The GUI half is already built and
+   waiting; this is the shell half only.
 
 Both of the `rotom` subcommands that were written up are now settled: 1.25 is
 built, and 1.24 is closed as unnecessary.
@@ -100,6 +109,8 @@ Verified by running the binary, not by reading the code.
   over the same OSC channel as `expand`/`shrink` (1.23)
 - `rotom convo` — a conversation mode that sends each line to a local Ollama
   model instead of the parser, with multi-turn memory; `bye` leaves (1.25)
+- Fullscreen is a real second layout — hologram background, terminal inside the
+  ring, a hovering Rotom sprite, and the mood flash following it (2.5)
 - Tokenizing lives in its own `tokenize()` function, not inline in `main` (1.22)
 - Command separators — `;`, `&&`, `||`, chained freely and mixed with
   pipelines, redirection and `&` (1.3)
@@ -1317,6 +1328,40 @@ spacing, which `jobs` output does not care about.
 
 Cosmetic only. Nothing behaves wrongly.
 
+### 1.28 `rotom form` — switch the hovering sprite
+
+Not started. Depends on [2.5](#25-fullscreen--the-hologram-and-a-hovering-rotom--done-2026-08-17),
+which is built, so the GUI half is already waiting for it.
+
+Rotom has six forms with Gen 5 sprites — base, heat, wash, frost, fan, mow.
+Fullscreen currently hovers the base one. The command picks which:
+
+```
+$ rotom form mow
+$ rotom form
+base heat wash frost fan mow
+```
+
+**How it reaches the window:** the same OSC channel as everything else —
+`\x1b]7777;form;mow\x07`. `main.c` prints it and knows nothing more. The
+renderer swaps `#hover-sprite`'s `src` to `sprites/rotom-mow.gif`.
+
+**The shell stays stateless**, exactly as with `expand`/`shrink`. It does not
+track the current form and does not need to; the GUI owns that.
+
+**What will bite:**
+
+- **The shell cannot validate the name.** The list of sprites that actually
+  exist lives in `gui/sprites/`, and `main.c` must not know about the GUI. So
+  either the shell ships a hardcoded list of the six names — duplication, but
+  honest and one line to change — or it forwards anything and the GUI ignores
+  what it cannot find. Pick one deliberately.
+- **`rotom form` with no argument** should list, not error. That is a different
+  shape from `rotom mood`, which takes `on|off` and errors on anything else.
+  See 1.11 — every builtin has to survive being called bare.
+- Adding sprites is a download into `gui/sprites/` plus a name in the list.
+  Nothing else changes.
+
 ---
 
 ## Phase 2 — The terminal emulator
@@ -1420,10 +1465,11 @@ here instead.
 **Decided:**
 
 - **Two layouts, one window.** Rotom mode is a fixed-size window; fullscreen
-  gets its own design later. `main.js` sends a `ui:mode` message on
-  `enter-full-screen` / `leave-full-screen`; the page sets `data-mode` on
-  `<body>` and CSS keys off it. Both modes currently render the same frame, so
-  adding the fullscreen look is a new CSS block, not a restructure.
+  has its own design, built in [2.5](#25-fullscreen--the-hologram-and-a-hovering-rotom--done-2026-08-17).
+  `main.js` sends a `ui:mode` message on `enter-full-screen` /
+  `leave-full-screen`; the page sets `data-mode` on `<body>` and CSS keys off
+  it. `applyLayout()` branches on that mode — the two layouts share the
+  `--text-*` variables and nothing else.
 - **Fixed size, no resizing.** The art is only ever drawn at a whole-number
   scale — scaling pixel art by a fraction is what makes it look mushy.
   Fullscreen is the way to get more room.
@@ -1515,6 +1561,117 @@ the terminal viewport.
 
 `electron-builder` or Electron Forge → a `.app` with an `.icns` icon, installed
 to `/Applications`, double-clickable, with a proper Dock icon.
+
+---
+
+### 2.5 Fullscreen — the hologram and a hovering Rotom — DONE (2026-08-17)
+
+**Was:** fullscreen borrowed the framed layout, so `applyLayout()` scaled the
+Dex art by `innerWidth / 160` and `innerHeight / 128` independently. On a
+1920x1080 display that is 12x wide by 8.24x tall — a squat Rotom on a
+fractional pixel grid, over a transparent background showing the desktop.
+
+**Now:** fullscreen has its own geometry. `full_screen_hologram.png` covers the
+screen, the terminal sits inside the frame's inner ring, and a Rotom sprite
+drifts around behind the text.
+
+**Decided, after mocking up three whole-screen designs and looking at them:**
+
+- **The Dex art does not appear in fullscreen at all.** Centring it and filling
+  the sides was mocked up and rejected: at whole-number scale the framed window
+  already picks 8x on the 1920x1055 work area, so a centred Dex gives *exactly
+  the same* terminal size. Fullscreen has to buy room or it is pointless. It
+  buys a lot — **39x10 framed, 145x42 fullscreen** on this Mac.
+- **`cover`, not `contain`.** The first hologram was 1024x732 (1.4:1) against a
+  16:9 display, so something had to give: `cover` cost 146px off the top and
+  bottom, `contain` letterboxed to 1259px wide. Both were rendered and
+  compared, and `cover` won on filling the screen. **The art was then re-exported
+  at 1024x572 (1.790:1) and the problem mostly went away** — at `cover` the
+  scale is 1.888 and only ~6px comes off each side. Keep new holograms at 16:9
+  and this stays a non-issue.
+- **The background is opaque in fullscreen.** The window is `transparent: true`
+  with `backgroundColor: '#00000000'`, which is right for the Dex shape and
+  wrong for fullscreen — the gaps would show the desktop. One CSS rule on
+  `body[data-mode='fullscreen']` paints `#080f1f`, sampled from the art's own
+  outer edge, so any letterbox gap is invisible.
+- **The sprite does not dodge the text — it flies over it, opaque.** Two plans
+  were tried and dropped first. A keep-out rectangle above the cursor row, so
+  Rotom roamed the empty area below the prompt, is wrong for a reason worth
+  writing down: with the terminal filling the ring, the screen fills up once
+  and then the prompt lives at the *bottom* forever, so there is never any room
+  below it and Rotom would be hidden in normal use. Sitting *behind* the text
+  at 62% opacity was built and looked fine, but reads as a background texture
+  rather than a creature. It is now last in the DOM, after `#terminal`, at full
+  opacity — it passes in front and covers whatever it crosses. Costs no rows
+  and needs no cursor tracking either way.
+- **The GIFs do the frame animation, we do the movement.** These are two
+  different animations and only one of them is ours. The Gen 5 sprites already
+  bob and flicker — hand-drawing that would be six forms x four frames of
+  original pixel art to land below Game Freak. Where the sprite *drifts* is
+  what no sprite sheet can give you, and that is `hover.js`.
+
+**Measured, not assumed** (Electron 43, macOS, 1920x1080):
+
+- Ring inner rect, found by scanning the art for its bright frame pixels rather
+  than by eye: **x 111, y 102, 834x382** in the PNG's own 1024x572 pixels.
+  `layout.js` stores it in those coordinates and scales at runtime, so a new
+  hologram means new numbers there and nothing else. Swapping the first
+  hologram for the 16:9 one was exactly that: four numbers.
+- Interior fill `#182633`, outer edge `#091022` — flat all the way round, which
+  is what makes the opaque letterbox colour work.
+- `image-rendering: pixelated` **does** apply to an animated GIF in Chromium.
+  Verified by rendering the same GIF at 4x with and without it, side by side.
+- The base sprite is 88x60, **192 frames**, transparent background, drawn at 3x
+  with `pixelated`. Native timing is 50ms a frame — a 9.6 second loop — which
+  reads as hyperactive on a big screen.
+- **A GIF's frame timing can be slowed without re-encoding it.** The delay is
+  two bytes inside each Graphic Control Extension block, so `gif-speed.js`
+  walks the file, multiplies every delay by `FACTOR` (2.5) and writes it back
+  out — no decoder, no encoder, no new dependency, and the image data is
+  untouched. Pristine downloads live in `sprites/src/`, the retimed copies in
+  `sprites/`. Rotom now runs at 130ms a frame, a 25 second loop.
+- The hologram itself is **not** `pixelated`. Its scale is fractional (1.875)
+  and it carries a soft glow, so nearest-neighbour would give it uneven blocks.
+  The whole-pixel rule applies to the sprite and the Dex art, not to this.
+
+**Two gotchas, both found by running it:**
+
+- **`HOVER.setBounds()` ran before `HOVER.start()` assigned `this.el`**, so it
+  threw on a null element, `applyFullscreen()` aborted halfway, and `syncSize()`
+  never ran — the terminal kept the framed 39x10 in a fullscreen window. Split
+  into `init()`/`setBounds()`/`start()`. The symptom looked like a fit bug and
+  was not one.
+- **The mood flash had to move.** `#flash` masks itself to `screen-bg.png`,
+  which is not on screen in fullscreen mode. It now pulses a radial aura
+  centred on the sprite instead — Rotom flares green or red. Verified end to
+  end: `rotom mood on`, then `false`, and the renderer's OSC handler fires.
+- **The bob broke the bounds.** `span()` keeps the sprite's *eased* position
+  inside the box, but the sine bob was added afterwards, so it could poke up to
+  `bobAmp` past the ring. The final x and y are now clamped after the bob, not
+  before. Checked by sampling the transform 60 times over 21 seconds and
+  comparing the sprite's extent against the box: contained, and drifting at
+  about 11 px/sec.
+
+**Known gaps:**
+
+- **The window buttons are invisible in fullscreen.** In framed mode they are
+  drawn into the Dex art as the two arm circles; fullscreen has no art under
+  them, so they are live but unmarked in the top band. `rotom shrink` is the
+  reliable way out today.
+- Sprite scale, opacity and drift timing are constants at the top of
+  `hover.js` and were picked by eye, not tuned.
+
+**Tuning** lives at the top of `hover.js`: `hop` and `pause` are the millisecond
+ranges for a drift and the rest between drifts, `step` is how far it travels as
+a fraction of the box diagonal, `bobAmp`/`bobMs` are the float. The first pass
+was far too twitchy — long random hops anywhere in the box. It now picks a
+target near where it already is and takes 6–11 seconds to get there.
+
+**Files:** `layout.js` (`holo` and `sprite` blocks), `hover.js` (new — the
+motion loop), `gif-speed.js` (new — the frame retimer), `index.html` (the
+`[data-mode='fullscreen']` block, the `#hover` element), `renderer.js`
+(`applyFramed`/`applyFullscreen` split, aura pulse), `full_screen_hologram.png`
+and `sprites/` (new).
 
 ---
 

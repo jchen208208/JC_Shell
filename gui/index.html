@@ -53,6 +53,28 @@
         -webkit-mask-size: 100% 100%;
         -webkit-mask-repeat: no-repeat;
       }
+      #hover {
+        position: absolute;
+        left: 0;
+        top: 0;
+        display: none;
+        pointer-events: none;
+        will-change: transform;
+      }
+      #hover-sprite {
+        display: block;
+        width: 100%;
+        height: 100%;
+        image-rendering: pixelated;
+      }
+      #hover-aura {
+        position: absolute;
+        inset: -35%;
+        opacity: 0;
+        border-radius: 50%;
+        pointer-events: none;
+        background: radial-gradient(circle, var(--aura, #1fdd4e) 0%, transparent 62%);
+      }
       #terminal {
         position: absolute;
         left: var(--text-x);
@@ -68,6 +90,18 @@
       }
       #terminal .xterm-viewport::-webkit-scrollbar {
         width: 0;
+      }
+      body[data-mode='fullscreen'] {
+        background: #080f1f url('full_screen_hologram.png') center/cover no-repeat;
+      }
+      body[data-mode='fullscreen'] .frame {
+        background-image: none;
+      }
+      body[data-mode='fullscreen'] #screen {
+        display: none;
+      }
+      body[data-mode='fullscreen'] #hover {
+        display: block;
       }
       .btn {
         position: absolute;
@@ -90,7 +124,9 @@
     </div>
     <div id="screen"><div id="flash"></div></div>
     <div id="terminal"></div>
+    <div id="hover"><div id="hover-aura"></div><img id="hover-sprite" src="sprites/rotom.gif" alt="" /></div>
     <script src="layout.js"></script>
+    <script src="hover.js"></script>
     <script src="node_modules/@xterm/xterm/lib/xterm.js"></script>
     <script src="node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
     <script src="renderer.js"></script>

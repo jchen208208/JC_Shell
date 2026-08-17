@@ -6,5 +6,7 @@ const LAYOUT = {
     fullscreen: { x: 12, y: 88, w: 8, h: 6 },
     close: { x: 138, y: 88, w: 8, h: 6 },
   },
+  holo: { w: 1024, h: 572, ring: { x: 111, y: 102, w: 834, h: 382 }, inset: 16, btn: 22, gap: 12 },
+  sprite: { w: 88, h: 60, scale: 3 },
 };
 if (typeof module !== 'undefined') module.exports = LAYOUT;

@@ -27,10 +27,11 @@ binary, and only then did the segment loop go in on top of it. Two things it
 surfaced are logged as 1.26 and 1.27.
 
 Cleared on 2026-08-17: 2.5 — fullscreen stopped stretching the Dex art and got
-its own design. The hologram covers the screen, the terminal lives inside its
-inner ring at 145x42 instead of 39x10, and a Gen 5 Rotom sprite drifts around
-behind the text. Read that section before touching either layout; the sprite
-sits *behind* the terminal for a reason, and the reason is written down.
+its own design. The hologram fills the screen edge to edge, the terminal lives
+inside its inner ring at 155x37 instead of 39x10, and a Gen 5 Rotom sprite
+drifts across the front of it. Read that section before touching either layout
+— the background is fitted by `holo.bleed`, not by `cover`, and three sprite
+layering schemes were tried before this one.
 
 Remaining, in the order they are worth doing:
 
@@ -1571,9 +1572,9 @@ Dex art by `innerWidth / 160` and `innerHeight / 128` independently. On a
 1920x1080 display that is 12x wide by 8.24x tall — a squat Rotom on a
 fractional pixel grid, over a transparent background showing the desktop.
 
-**Now:** fullscreen has its own geometry. `full_screen_hologram.png` covers the
-screen, the terminal sits inside the frame's inner ring, and a Rotom sprite
-drifts around behind the text.
+**Now:** fullscreen has its own geometry. `full_screen_hologram.png` fills the
+screen edge to edge, the terminal sits inside the frame's inner ring, and a
+Rotom sprite drifts across the front of it.
 
 **Decided, after mocking up three whole-screen designs and looking at them:**
 
@@ -1581,7 +1582,7 @@ drifts around behind the text.
   the sides was mocked up and rejected: at whole-number scale the framed window
   already picks 8x on the 1920x1055 work area, so a centred Dex gives *exactly
   the same* terminal size. Fullscreen has to buy room or it is pointless. It
-  buys a lot — **39x10 framed, 145x42 fullscreen** on this Mac.
+  buys a lot — **39x10 framed, 155x37 fullscreen** on this Mac.
 - **Neither `cover` nor `contain` — the frame's own bounding box is mapped to
   the screen.** The first hologram was 1024x732 (1.4:1) against a 16:9 display,
   so something had to give: `cover` cost 146px off the top and bottom,
@@ -1613,8 +1614,10 @@ drifts around behind the text.
 - **The background is opaque in fullscreen.** The window is `transparent: true`
   with `backgroundColor: '#00000000'`, which is right for the Dex shape and
   wrong for fullscreen — the gaps would show the desktop. One CSS rule on
-  `body[data-mode='fullscreen']` paints `#080f1f`, sampled from the art's own
-  outer edge, so any letterbox gap is invisible.
+  `body[data-mode='fullscreen']` paints `#091022`, sampled from the art's own
+  outer edge. Since `bleed` now maps the frame to the whole window nothing
+  shows through it, but it is the right colour if a future hologram ever falls
+  short of an edge.
 - **The sprite does not dodge the text — it flies over it, opaque.** Two plans
   were tried and dropped first. A keep-out rectangle above the cursor row, so
   Rotom roamed the empty area below the prompt, is wrong for a reason worth
@@ -1651,11 +1654,12 @@ drifts around behind the text.
   out — no decoder, no encoder, no new dependency, and the image data is
   untouched. Pristine downloads live in `sprites/src/`, the retimed copies in
   `sprites/`. Rotom now runs at 130ms a frame, a 25 second loop.
-- The hologram itself is **not** `pixelated`. Its scale is fractional (1.875)
-  and it carries a soft glow, so nearest-neighbour would give it uneven blocks.
+- The hologram itself is **not** `pixelated`. Its scale is fractional and
+  non-uniform (1.998 x, 2.156 y at 1920x1080) and it carries a soft glow, so
+  nearest-neighbour would give it uneven blocks.
   The whole-pixel rule applies to the sprite and the Dex art, not to this.
 
-**Two gotchas, both found by running it:**
+**Three gotchas, all found by running it, none by reading it:**
 
 - **`HOVER.setBounds()` ran before `HOVER.start()` assigned `this.el`**, so it
   threw on a null element, `applyFullscreen()` aborted halfway, and `syncSize()`
@@ -1673,20 +1677,30 @@ drifts around behind the text.
   comparing the sprite's extent against the box: contained, and drifting at
   about 11 px/sec.
 
+**Tuning** lives at the top of `hover.js`: `hop` and `pause` are the millisecond
+ranges for a drift and the rest between drifts, `step` is how far it travels as
+a fraction of the box diagonal, `bobAmp`/`bobMs` are the float. The first pass
+was far too twitchy — long random hops anywhere in the box. It now picks a
+target near where it already is and takes 6–11 seconds to get there. Sprite
+size is `sprite.scale` in `layout.js`, a whole number as always.
+
 **Known gaps:**
 
 - **The window buttons are invisible in fullscreen.** In framed mode they are
   drawn into the Dex art as the two arm circles; fullscreen has no art under
   them, so they are live but unmarked in the top band. `rotom shrink` is the
   reliable way out today.
-- Sprite scale, opacity and drift timing are constants at the top of
-  `hover.js` and were picked by eye, not tuned.
-
-**Tuning** lives at the top of `hover.js`: `hop` and `pause` are the millisecond
-ranges for a drift and the rest between drifts, `step` is how far it travels as
-a fraction of the box diagonal, `bobAmp`/`bobMs` are the float. The first pass
-was far too twitchy — long random hops anywhere in the box. It now picks a
-target near where it already is and takes 6–11 seconds to get there.
+- **`bleed` is tuned for 16:9 and only 16:9.** The frame's box is 1.918:1, so
+  the vertical stretch is about 8% on this display — invisible. On the other
+  two displays this Mac reports it would be roughly 20% at 1680x1050 and 44% at
+  800x600, which would not be. If fullscreen has to work on those, `bleed`
+  needs to be chosen per display aspect rather than fixed.
+- **The bottom edge still shows 11px of dark.** Left deliberately: closing it
+  means clipping the bottom decorations, and it is one number in `bleed`.
+- **`gui/hologram.png` is missing from the working tree.** It disappeared when
+  the new fullscreen art was dropped in. Nothing at runtime wants it, but
+  `rotom-gen.js` reads it to rebuild `screen-bg.png`, so the Dex art cannot be
+  regenerated until it is restored with `git checkout gui/hologram.png`.
 
 **Files:** `layout.js` (`holo` and `sprite` blocks), `hover.js` (new — the
 motion loop), `gif-speed.js` (new — the frame retimer), `index.html` (the

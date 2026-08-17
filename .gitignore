@@ -54,4 +54,5 @@ dkms.conf
 build
 .DS_Store
 CLAUDE.md
+ROADMAP.md
 node_modules

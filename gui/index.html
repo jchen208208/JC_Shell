@@ -21,6 +21,10 @@
         --text-y: 0px;
         --text-w: 100px;
         --text-h: 100px;
+        --bg-x: 0px;
+        --bg-y: 0px;
+        --bg-w: 100%;
+        --bg-h: 100%;
       }
       .frame {
         position: absolute;
@@ -92,7 +96,8 @@
         width: 0;
       }
       body[data-mode='fullscreen'] {
-        background: #080f1f url('full_screen_hologram.png') center/cover no-repeat;
+        background: #091022 url('full_screen_hologram.png') var(--bg-x) var(--bg-y) / var(--bg-w)
+          var(--bg-h) no-repeat;
       }
       body[data-mode='fullscreen'] .frame {
         background-image: none;

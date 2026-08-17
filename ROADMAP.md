@@ -1582,13 +1582,34 @@ drifts around behind the text.
   already picks 8x on the 1920x1055 work area, so a centred Dex gives *exactly
   the same* terminal size. Fullscreen has to buy room or it is pointless. It
   buys a lot — **39x10 framed, 145x42 fullscreen** on this Mac.
-- **`cover`, not `contain`.** The first hologram was 1024x732 (1.4:1) against a
-  16:9 display, so something had to give: `cover` cost 146px off the top and
-  bottom, `contain` letterboxed to 1259px wide. Both were rendered and
-  compared, and `cover` won on filling the screen. **The art was then re-exported
-  at 1024x572 (1.790:1) and the problem mostly went away** — at `cover` the
-  scale is 1.888 and only ~6px comes off each side. Keep new holograms at 16:9
-  and this stays a non-issue.
+- **Neither `cover` nor `contain` — the frame's own bounding box is mapped to
+  the screen.** The first hologram was 1024x732 (1.4:1) against a 16:9 display,
+  so something had to give: `cover` cost 146px off the top and bottom,
+  `contain` letterboxed to 1259px wide. Re-exporting the art at 1024x572
+  (1.790:1) fixed most of that, but `cover` still left a dark band all the way
+  round, because **the glowing frame does not reach the edges of its own PNG**.
+  It sits at x46, y34, 978x507 inside a 1024x572 canvas.
+  `holo.bleed` records that rectangle and `applyFullscreen()` scales it — not
+  the canvas — to the window, via `background-size` and a negative
+  `background-position`. The dark margin goes off-screen and the neon reaches
+  the edge. **`bleed` is then tightened past the measured box by hand** — it
+  ships at x46, y40, 961x501 — because the frame's outline is ragged and the
+  bounding box is set by whichever decoration sticks out furthest, not by the
+  edge you actually see. Tightening trades a sliver of the topmost and
+  right-most decoration, pushed off-screen, for a flush edge.
+- **That mapping is deliberately non-uniform.** The frame's box is 1.929:1, the
+  screen is 1.778:1, so filling it exactly means stretching y about 8% more
+  than x. The alternatives were measured and are worse: scale uniformly and
+  either 23px of black stays top and bottom, or 43px of frame is clipped each
+  side. On a glowing HUD at this size the stretch is invisible; on a display
+  much further from 16:9 it would not be, and `bleed` is the knob.
+- **Some dark corners survive and always will.** The frame's outer silhouette
+  is irregular — a few decorations stick out further than the rest — so mapping
+  its bounding box leaves gaps where the outline is concave. Measured on the
+  final build: the bright frame starts 0px in on the left, 0px top, 5px right,
+  11px bottom. The bottom is the one left open — one number in `bleed` closes
+  it, at the cost of clipping the bottom decorations. Closing the concave gaps
+  at the corners needs the PNG edited, not more scaling.
 - **The background is opaque in fullscreen.** The window is `transparent: true`
   with `backgroundColor: '#00000000'`, which is right for the Dex shape and
   wrong for fullscreen — the gaps would show the desktop. One CSS rule on

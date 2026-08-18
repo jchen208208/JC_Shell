@@ -798,11 +798,19 @@ static int read_line(char *buf, int size) {
 
             if (seq[0] == '[' && seq[1] == 'B') {
                 // down arrow
-                if (history_pos > 0 && history_pos < nhistory) {
+                if (history_pos < nhistory) {
                     history_pos++;
-                    int n = snprintf(buf, size, "%s", history_list[history_pos].command);
-                    len = (n < size - 1) ? n : size - 1;
-                    printf("\r\x1b[K$ %.*s", len, buf);
+                    // if down arrow reaches the end of the array, display no commands
+                    if (history_pos == nhistory) {
+                        len = 0;
+                        printf("\r\x1b[K$ ");
+                    }
+                    else {
+                        // n is the length of the command in history
+                        int n = snprintf(buf, size, "%s", history_list[history_pos].command);
+                        len = (n < size - 1) ? n : size - 1;
+                        printf("\r\x1b[K$ %.*s", len, buf);
+                    }
                 }
             }
 

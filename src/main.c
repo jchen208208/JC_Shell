@@ -603,7 +603,7 @@ static int read_line(char *buf, int size) {
             // completing first word (builtin command or executable file)
             if (word_start == 0) {
                 for (int i = 0; i < (sizeof(builtins) / sizeof(builtins[0])); i++) {
-                    if (strncmp(builtins[i], buf, len) == 0) {
+                    if (strncmp(builtins[i], buf, cursor) == 0) {
                         if (count < 64) {
                             strcpy(match[count++], builtins[i]);
                         }
@@ -620,7 +620,7 @@ static int read_line(char *buf, int size) {
                         if (d != NULL) {
                             struct dirent *entry;
                             while ((entry = readdir(d)) != NULL) {
-                                if (strncmp(entry->d_name, buf, len) == 0) {
+                                if (strncmp(entry->d_name, buf, cursor) == 0) {
                                     if (already_have(match, count, entry->d_name)) {
                                         continue;
                                     }
@@ -701,7 +701,7 @@ static int read_line(char *buf, int size) {
                             if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
                                 continue;
                             }
-                            if (strncmp(entry->d_name, buf + match_start, len - match_start) == 0) {
+                            if (strncmp(entry->d_name, buf + match_start, cursor - match_start) == 0) {
                                 strcpy(match[count], entry->d_name);
                                 char full_path[2048];
                                 snprintf(full_path, sizeof(full_path), "%s/%s", dirpath, entry->d_name);
@@ -743,10 +743,8 @@ static int read_line(char *buf, int size) {
                 len = match_start + match_len + (len - cursor) + space;  // len is now the length after completion plus the length between the cursor and the end of the line
                 cursor = match_start + match_len + space;  // cursor is just after the completion
 
-                if (!is_dir) {
-                    if (space == 1) {
-                        buf[match_start + match_len] = ' ';
-                    }
+                if (space == 1) {
+                    buf[match_start + match_len] = ' ';
                 }
 
                 printf("\r\x1b[K$ %.*s", len, buf);
@@ -760,14 +758,19 @@ static int read_line(char *buf, int size) {
             }
 
             if (count > 1) {
-                if (lcp > (len - match_start)) {
-                    printf("%.*s", lcp - (len - match_start), match[0] + (len - match_start)); // only show the characters after len but before the lcp mark for partial completion
-                    for (int i = len -  match_start; i < lcp; i++) {
+                if (lcp > (cursor - match_start)) {
+                    memmove(buf + cursor + (lcp - (cursor - match_start)), buf + cursor, len - cursor);  // (lcp - (cursor - match_start)) is the length of the characters you need to add aka make room for
+                    for (int i = cursor -  match_start; i < lcp; i++) {
                         buf[match_start + i] = match[0][i];
                     }
-                    len = match_start + lcp;
-                    cursor = len;
+                    len = match_start + lcp + (len - cursor);
+                    cursor = match_start + lcp;
                     prev_tab = false;
+
+                    printf("\r\x1b[K$ %.*s", len, buf);
+                    if (cursor < len) {
+                        printf("\x1b[%dD", len - cursor);
+                    }
                 }
 
                 else {
@@ -785,6 +788,9 @@ static int read_line(char *buf, int size) {
                         }
                         // reprints what the user had typed before pressing tab twice. .* is filled by len as the max length of the string since buf isn't null terminated yet
                         printf("\n$ %.*s", len, buf);
+                        if (cursor < len) {
+                            printf("\x1b[%dD", len - cursor);
+                        }
                         prev_tab = false;
                     }
                 }

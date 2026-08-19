@@ -588,7 +588,7 @@ static int read_line(char *buf, int size) {
         if (c == '\t') {
             // check if we are completing the first word or second word
             int word_start = 0;
-            for (int i = 0; i < len; i++) {
+            for (int i = 0; i < cursor; i++) {
                 if (buf[i] == ' ') {
                     word_start = i + 1;
                 }
@@ -736,14 +736,22 @@ static int read_line(char *buf, int size) {
             if (count == 1) {
                 size_t match_len = strlen(match[0]);
                 bool is_dir = match[0][match_len - 1] == '/';
+                int space = is_dir ? 0 : 1;
 
-                printf("%s", match[0] + (len - match_start));
-                strcpy(buf + match_start, match[0]);
-                len = match_start + match_len;
+                memmove(buf + match_start + match_len + space, buf + cursor, len - cursor);  // move the part after cursor to the right to where after the completion would be to make room for completion
+                memcpy(buf + match_start, match[0], match_len);  // copy in the completion
+                len = match_start + match_len + (len - cursor) + space;  // len is now the length after completion plus the length between the cursor and the end of the line
+                cursor = match_start + match_len + space;  // cursor is just after the completion
 
                 if (!is_dir) {
-                    printf(" ");
-                    buf[len++] = ' ';
+                    if (space == 1) {
+                        buf[match_start + match_len] = ' ';
+                    }
+                }
+
+                printf("\r\x1b[K$ %.*s", len, buf);
+                if (cursor < len) {
+                    printf("\x1b[%dD", len - cursor);
                 }
             }
 

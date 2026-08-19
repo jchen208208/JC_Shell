@@ -21,6 +21,9 @@ of a rectangle, with a custom font and theme inside.
   and everything else work as normal
 - **Pipelines:** `ls | grep foo | wc -l`, any number of stages
 - **Redirection:** `>`, `>>`, `2>`, `2>>` (and `1>` / `1>>`)
+- **Command separators:** `;`, `&&`, `||`, mixed freely with pipes and
+  redirection
+- **Exit status:** `$?`, with 127 for not-found and 128+signal when killed
 - **Background jobs:** `&`, with reaping and `jobs`
 - **Variables:** assignment and `$VAR` expansion
 - **Line editing:** tab completion and persistent history, hand-written on
@@ -28,17 +31,22 @@ of a rectangle, with a custom font and theme inside.
 
 ## Not yet
 
-`<` input redirection, `&&` / `||` / `;`, `$?`, globbing, and `~` outside `cd`.
+`<` input redirection, globbing, `~` outside `cd`, and left/right arrow cursor
+movement.
 
 ## Build
 
 ```sh
-cmake -B build -S .
-cmake --build build
+make            # configures on first run, then builds
+make run        # build, then start the shell
+make watch      # rebuild whenever anything in src/ changes
 ```
 
-## Run
+`make` is a thin wrapper — `CMakeLists.txt` is still the build definition, so
+the cmake commands work directly if you prefer:
 
 ```sh
+cmake -B build -S .
+cmake --build build
 ./build/shell
 ```

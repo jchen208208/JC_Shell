@@ -548,6 +548,7 @@ static int read_line(char *buf, int size) {
 
     // reading loop
     int len = 0;
+    int cursor = 0;
     int result = 0;
     char c;
     bool prev_tab = false;
@@ -751,6 +752,7 @@ static int read_line(char *buf, int size) {
                         buf[match_start + i] = match[0][i];
                     }
                     len = match_start + lcp;
+                    cursor = len;
                     prev_tab = false;
                 }
 
@@ -791,6 +793,7 @@ static int read_line(char *buf, int size) {
                     history_pos--;
                     int n = snprintf(buf, size, "%s", history_list[history_pos].command);
                     len = (n < size - 1) ? n : size - 1;
+                    cursor = len;
                     // display the command from history
                     printf("\r\x1b[K$ %.*s", len, buf); // '\r' moves the cursor to the front of the line, '\x1b[k' erases the chars from the cursor to the end of the line
                 }
@@ -803,6 +806,7 @@ static int read_line(char *buf, int size) {
                     // if down arrow reaches the end of the array, display no commands
                     if (history_pos == nhistory) {
                         len = 0;
+                        cursor = 0;
                         printf("\r\x1b[K$ ");
                     }
                     else {

@@ -569,13 +569,19 @@ static int read_line(char *buf, int size) {
             break;
         }
 
-        // if backspace is pressed, remove the last available character
+        // if backspace is pressed, remove the character at the cursor position
         if (c == 0x7F) {
-            if (len > 0) {
-                len--; // doens't erase the character stored at buf[len] but it will be overwritten on the next iteration
-                printf("\b\x1b[K"); // move the cursor one slot to its left and then erase everything to end of the line
+            if (cursor > 0) {
+                memmove(buf + cursor - 1, buf + cursor, len - cursor);
+                cursor--;
+                len--;
+                prev_tab = false;
+                printf("\r\x1b[K$ %.*s", len, buf);
+                if (cursor < len) {
+                    printf("\x1b[%dD", len - cursor);
+                }
             }
-            prev_tab = false;
+
             continue;
         }
 

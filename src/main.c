@@ -823,6 +823,7 @@ static int read_line(char *buf, int size) {
                 // left arrow
                 if (cursor > 0) {
                     cursor--;
+                    printf("\x1b[D");
                 }
             }
 
@@ -830,6 +831,7 @@ static int read_line(char *buf, int size) {
                 // right arrow
                 if (cursor < len) {
                     cursor++;
+                    printf("\x1b[C");
                 }
             }
 
@@ -837,9 +839,15 @@ static int read_line(char *buf, int size) {
         }
         
         if (len < size - 1) {
-            buf[len++] = c;
+            memmove(buf + cursor + 1, buf + cursor, len - cursor);
+            buf[cursor] = c;
+            cursor++;
+            len++;
             prev_tab = false;
-            printf("%c", c);
+            printf("\r\x1b[K$ %.*s", len, buf);
+            if (cursor < len) {
+                printf("\x1b[%dD", len - cursor);  // after the any printf, the caret (blinking block denoting cursor location) gets automatically assigned to the end of the line so we want to move it back by len-cursor to go back to the position of cursor
+            }
         }
     }
 

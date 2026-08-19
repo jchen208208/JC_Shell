@@ -813,8 +813,23 @@ static int read_line(char *buf, int size) {
                         // n is the length of the command in history
                         int n = snprintf(buf, size, "%s", history_list[history_pos].command);
                         len = (n < size - 1) ? n : size - 1;
+                        cursor = len;
                         printf("\r\x1b[K$ %.*s", len, buf);
                     }
+                }
+            }
+
+            if (seq[0] == '[' && seq[1] == 'D') {
+                // left arrow
+                if (cursor > 0) {
+                    cursor--;
+                }
+            }
+
+            if (seq[0] == '[' && seq[1] == 'C') {
+                // right arrow
+                if (cursor < len) {
+                    cursor++;
                 }
             }
 

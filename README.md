@@ -13,7 +13,7 @@ language on top. I've created a working subset that I'm still adding on to.
 I will also create a custom terminal app for my own use with its own Dock icon and a window shaped like a Rotom Dex instead
 of a rectangle, with a custom font and theme inside.
 
-## What works
+## Features
 
 - **Builtins:** `echo`, `exit`, `type`, `pwd`, `cd`, `history`, `jobs`,
   `declare`, `complete`
@@ -29,10 +29,6 @@ of a rectangle, with a custom font and theme inside.
 - **Line editing:** tab completion and persistent history, hand-written on
   raw-mode `termios`
 
-## Not yet
-
-`<` input redirection, globbing, `~` outside `cd`, and left/right arrow cursor
-movement.
 
 ## Build
 
@@ -42,8 +38,7 @@ make run        # build, then start the shell
 make watch      # rebuild whenever anything in src/ changes
 ```
 
-`make` is a thin wrapper — `CMakeLists.txt` is still the build definition, so
-the cmake commands work directly if you prefer:
+cmake commands work directly as well:
 
 ```sh
 cmake -B build -S .
